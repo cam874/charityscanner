@@ -1,9 +1,34 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 class ACNCDatabase {
     constructor() {
-        const dbPath = path.join(__dirname, 'acnc_data.db');
+        // Determine if we're in Vercel production environment
+        const isVercel = process.env.VERCEL === '1';
+        
+        let dbPath;
+        if (isVercel) {
+            // Use /tmp directory for Vercel
+            dbPath = '/tmp/acnc_data.db';
+            
+            // Check if we need to copy the database to /tmp
+            if (!fs.existsSync(dbPath)) {
+                const sourceDbPath = path.join(__dirname, 'acnc_data.db');
+                if (fs.existsSync(sourceDbPath)) {
+                    try {
+                        fs.copyFileSync(sourceDbPath, dbPath);
+                        console.log('Database copied to /tmp for Vercel deployment');
+                    } catch (err) {
+                        console.error('Error copying database to /tmp:', err);
+                    }
+                }
+            }
+        } else {
+            // Local development path
+            dbPath = path.join(__dirname, 'acnc_data.db');
+        }
+        
         console.log('Database path:', dbPath);
         try {
             this.db = new Database(dbPath, { readonly: true });

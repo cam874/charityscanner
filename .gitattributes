@@ -1,0 +1,2 @@
+# Handle SQLite database with Git LFS
+*.db filter=lfs diff=lfs merge=lfs -text
