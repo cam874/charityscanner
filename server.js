@@ -483,6 +483,26 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Error handling middleware - must be placed at the end of all route definitions
+app.use((err, req, res, next) => {
+    console.error('Global error handler caught:', err);
+    res.status(500).json({ 
+        error: 'Internal Server Error', 
+        message: err.message,
+        path: req.path,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+});
+
+// Handle all other routes - must be after all other routes are defined
+app.use('*', (req, res) => {
+    console.log(`Route not found: ${req.originalUrl}`);
+    res.status(404).json({ 
+        error: 'Not Found',
+        message: `The requested path ${req.originalUrl} was not found`
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`ACNC Proxy Server running at http://localhost:${PORT}`);
 });
