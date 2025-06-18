@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chart.js Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Chart.js Test</h1>
+    <div id="result"></div>
+    <script>
+        // Test if Chart.js is loaded
+        if (typeof Chart !== 'undefined') {
+            document.getElementById('result').innerHTML = '<p style="color: green;">✅ Chart.js is loaded successfully!</p>';
+            console.log('Chart.js version:', Chart.version);
+        } else {
+            document.getElementById('result').innerHTML = '<p style="color: red;">❌ Chart.js failed to load!</p>';
+        }
+    </script>
+</body>
+</html>
