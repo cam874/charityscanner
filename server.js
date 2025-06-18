@@ -2,19 +2,44 @@ const express = require('express');
 const fetch = require('node-fetch');
 const ACNCDatabase = require('./database/queries');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize database connection
-const db = new ACNCDatabase();
+// Add middleware for logging requests in Vercel
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+});
 
 // Serve the static frontend file from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Initialize database connection with error handling
+let db;
+try {
+    console.log('Environment:', process.env.NODE_ENV || 'development');
+    console.log('Is Vercel:', process.env.VERCEL === '1' ? 'Yes' : 'No');
+    console.log('Current working directory:', process.cwd());
+    console.log('Directory contents:', fs.readdirSync(process.cwd()));
+    
+    db = new ACNCDatabase();
+    console.log('Database initialized');
+} catch (error) {
+    console.error('Failed to initialize database:', error);
+    // We'll continue and handle errors in the routes
+}
+
 // Debug route to test if server is working
 app.get('/test', (req, res) => {
-    res.json({ message: 'Server is working!', cwd: process.cwd() });
+    res.json({ 
+        message: 'Server is working!', 
+        cwd: process.cwd(),
+        env: process.env.NODE_ENV || 'development',
+        isVercel: process.env.VERCEL === '1',
+        dbInitialized: !!db
+    });
 });
 
 // --- EXISTING LIVE API ENDPOINTS (KEPT FOR CURRENT DATA) ---
@@ -110,6 +135,13 @@ app.get('/api/entity', async (req, res) => {
 // Search charities in local database
 app.get('/api/db/search', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const {
             search = '',
             size = '',
@@ -138,13 +170,20 @@ app.get('/api/db/search', async (req, res) => {
         });
     } catch (error) {
         console.error('Database search error:', error);
-        res.status(500).json({ error: 'Failed to search database' });
+        res.status(500).json({ error: 'Failed to search database', message: error.message });
     }
 });
 
 // Get charity details from database
 app.get('/api/db/charity/:abn', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { abn } = req.params;
         const details = db.getCharityDetails(abn);
         
@@ -165,6 +204,13 @@ app.get('/api/db/charity/:abn', async (req, res) => {
 // Get historical financial data for a charity
 app.get('/api/db/charity/:abn/history', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { abn } = req.params;
         const trends = db.getFinancialTrends(abn);
         
@@ -181,6 +227,13 @@ app.get('/api/db/charity/:abn/history', async (req, res) => {
 // Get financial trends for a charity
 app.get('/api/db/trends/:abn', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { abn } = req.params;
         const trends = db.getFinancialTrends(abn);
         
@@ -197,6 +250,13 @@ app.get('/api/db/trends/:abn', async (req, res) => {
 // Get yearly statistics
 app.get('/api/db/stats/:year', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { year } = req.params;
         const stats = db.getYearlyStats(parseInt(year));
         
@@ -213,6 +273,13 @@ app.get('/api/db/stats/:year', async (req, res) => {
 // Get top charities for a year
 app.get('/api/db/top/:year', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { year } = req.params;
         const { limit = 10 } = req.query;
         const topCharities = db.getTopCharities(parseInt(year), parseInt(limit));
@@ -230,6 +297,13 @@ app.get('/api/db/top/:year', async (req, res) => {
 // Get sector analysis
 app.get('/api/db/sectors/:year', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { year } = req.params;
         const sectors = db.getSectorAnalysis(parseInt(year));
         
@@ -246,6 +320,13 @@ app.get('/api/db/sectors/:year', async (req, res) => {
 // Get autocomplete suggestions from database
 app.get('/api/db/autocomplete', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { search = '' } = req.query;
         const suggestions = db.getAutocompleteSuggestions(search);
         
@@ -262,6 +343,13 @@ app.get('/api/db/autocomplete', async (req, res) => {
 // Get available years
 app.get('/api/db/years', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const years = db.getAvailableYears();
         
         res.json({
@@ -277,8 +365,15 @@ app.get('/api/db/years', async (req, res) => {
 // Health check endpoint
 app.get('/api/db/health', async (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available, but the API server is running.'
+            });
+        }
+        
         const years = db.getAvailableYears();
-        const stats = db.getYearlyStats(Math.max(...years));
+        const stats = years.length > 0 ? db.getYearlyStats(Math.max(...years)) : {};
         
         res.json({
             success: true,
@@ -288,15 +383,26 @@ app.get('/api/db/health', async (req, res) => {
         });
     } catch (error) {
         console.error('Database health check error:', error);
-        res.status(500).json({ error: 'Database connection failed' });
+        res.status(500).json({ 
+            error: 'Database check failed', 
+            message: error.message,
+            apiServer: 'running'
+        });
     }
 });
 
-// --- LOCAL DATABASE ENDPOINTS ---
+// --- LOCAL DATABASE ENDPOINTS (OLDER VERSIONS - KEPT FOR COMPATIBILITY) ---
 
 // Search charities with filters from local database
 app.get('/api/local/search', (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { search, size, minRevenue, maxRevenue, year, limit, offset } = req.query;
         const results = db.searchCharities({
             search,
@@ -317,6 +423,13 @@ app.get('/api/local/search', (req, res) => {
 // Get detailed charity information from local database
 app.get('/api/local/charity/:abn', (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { abn } = req.params;
         const details = db.getCharityDetails(abn);
         if (details) {
@@ -333,6 +446,13 @@ app.get('/api/local/charity/:abn', (req, res) => {
 // Get financial trends for a charity from local database
 app.get('/api/local/trends/:abn', (req, res) => {
     try {
+        if (!db) {
+            return res.status(503).json({ 
+                error: 'Database Service Unavailable',
+                message: 'The database connection is not available.'
+            });
+        }
+        
         const { abn } = req.params;
         const trends = db.getFinancialTrends(abn);
         if (trends && trends.length > 0) {
@@ -344,6 +464,16 @@ app.get('/api/local/trends/:abn', (req, res) => {
         console.error('Local financial trends error:', error);
         res.status(500).json({ error: 'Failed to fetch financial trends from local database.' });
     }
+});
+
+// Error handling middleware - place at the end
+app.use((err, req, res, next) => {
+    console.error('Global error handler caught:', err);
+    res.status(500).json({ 
+        error: 'Internal Server Error', 
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
 });
 
 app.listen(PORT, () => {
