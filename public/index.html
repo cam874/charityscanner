@@ -555,6 +555,52 @@
         <div id="charity-results-container"></div>
     </div>
     <script>
+        // Debug function to log API calls
+        async function debugFetch(url, options) {
+            console.log(`🔍 Fetching: ${url}`);
+            try {
+                const response = await fetch(url, options);
+                console.log(`📡 Response status for ${url}: ${response.status}`);
+                
+                // Clone the response to avoid consuming it
+                const clonedResponse = response.clone();
+                const text = await clonedResponse.text();
+                console.log(`📄 Response data for ${url}: ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`);
+                
+                // Return original response for normal processing
+                return response;
+            } catch (error) {
+                console.error(`❌ Error fetching ${url}:`, error);
+                throw error;
+            }
+        }
+
+        // Replace all fetch calls with debugFetch
+        const originalFetch = window.fetch;
+        window.fetch = debugFetch;
+
+        // API health check
+        console.log('🚀 App initialized, checking API health...');
+        debugFetch('/api/db/health')
+            .then(response => response.json())
+            .then(data => {
+                console.log('✅ API health check result:', data);
+            })
+            .catch(error => {
+                console.error('❌ API health check failed:', error);
+            });
+            
+        // Version info
+        const versionInfo = document.createElement('div');
+        versionInfo.innerHTML = `<small>App Version: ${new Date().toISOString()}</small>`;
+        versionInfo.style.position = 'fixed';
+        versionInfo.style.bottom = '5px';
+        versionInfo.style.right = '5px';
+        versionInfo.style.color = 'white';
+        versionInfo.style.opacity = '0.5';
+        document.body.appendChild(versionInfo);
+
+        // Original script starts below
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('search-input');
             const searchButton = document.getElementById('search-button');
