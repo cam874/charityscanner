@@ -555,11 +555,17 @@
         <div id="charity-results-container"></div>
     </div>
     <script>
+        // API Configuration - Update this with your VPS IP address
+        const API_BASE_URL = 'http://170.64.168.145:3000';
+        
+        // Store the original fetch for our debug wrapper
+        const originalFetch = window.fetch;
+        
         // Debug function to log API calls
         async function debugFetch(url, options) {
             console.log(`🔍 Fetching: ${url}`);
             try {
-                const response = await fetch(url, options);
+                const response = await originalFetch(url, options);
                 console.log(`📡 Response status for ${url}: ${response.status}`);
                 
                 // Clone the response to avoid consuming it
@@ -576,12 +582,11 @@
         }
 
         // Replace all fetch calls with debugFetch
-        const originalFetch = window.fetch;
         window.fetch = debugFetch;
 
         // API health check
         console.log('🚀 App initialized, checking API health...');
-        debugFetch('/api/db/health')
+        debugFetch(`${API_BASE_URL}/api/db/health`)
             .then(response => response.json())
             .then(data => {
                 console.log('✅ API health check result:', data);
@@ -624,11 +629,11 @@
                     return;
                 }
                 try {
-                    const resp = await fetch(`/api/autocomplete?keyword=${encodeURIComponent(keyword)}`);
+                    const resp = await fetch(`${API_BASE_URL}/api/autocomplete?keyword=${encodeURIComponent(keyword)}`);
                     if (!resp.ok) throw new Error('Autocomplete failed');
                     const data = await resp.json();
-                    // Show all results (no filtering)
-                    autocompleteResults = data.results || [];
+                    // API returns array directly, not wrapped in results
+                    autocompleteResults = Array.isArray(data) ? data : (data.results || []);
                     renderDropdown();
                 } catch (e) {
                     dropdown.classList.add('hidden');
@@ -662,23 +667,35 @@
                     autocompleteIndex = -1;
                     // Only display the selected charity result
                     showLoading(`Searching for "${searchInput.value}"...`);
-                    fetch(`/api/search?name=${encodeURIComponent(searchInput.value)}`)
-                        .then(resp => resp.json())
+                    
+                    const searchUrl = `${API_BASE_URL}/api/search?name=${encodeURIComponent(searchInput.value)}`;
+                    console.log('🔍 Searching with URL:', searchUrl);
+                    
+                    fetch(searchUrl)
+                        .then(resp => {
+                            console.log('📡 Search response status:', resp.status);
+                            return resp.json();
+                        })
                         .then(data => {
+                            console.log('📄 Search response data:', data);
                             if (data.results && data.results.length > 0) {
                                 // Find the exact match (case-insensitive)
                                 const match = data.results.find(c => c.data && c.data.Name && c.data.Name.toLowerCase() === searchInput.value.toLowerCase());
                                 if (match) {
+                                    console.log('✅ Found exact match:', match);
                                     processSearchResults([match]);
                                 } else {
                                     // fallback: show first result
+                                    console.log('⚠️ No exact match, using first result:', data.results[0]);
                                     processSearchResults([data.results[0]]);
                                 }
                             } else {
+                                console.log('❌ No results found in search response');
                                 displayError(`No charities found matching "${searchInput.value}".`);
                             }
                         })
                         .catch(error => {
+                            console.error('🚨 Search error:', error);
                             displayError(error.message);
                         });
                 }
@@ -740,7 +757,7 @@
                     return;
                 }
                 showLoading(`Searching for "${charityName}"...`);
-                const url = `/api/search?name=${encodeURIComponent(charityName)}`;
+                const url = `${API_BASE_URL}/api/search?name=${encodeURIComponent(charityName)}`;
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Search request failed. Status: ${response.status}`);
@@ -756,6 +773,7 @@
                 }
             }
             function processSearchResults(charities) {
+                console.log('🎯 Processing search results:', charities);
                 showLoading(`Found ${charities.length} result(s). Fetching latest financial data...`);
                 charityResultsContainer.innerHTML = '';
                 const promises = charities.map(charity => fetchLatestAis(charity));
@@ -763,7 +781,7 @@
             }
             async function fetchLatestAis(charity) {
                 // Fetch the entity data for the charity UUID
-                const url = `/api/entity?uuid=${charity.uuid}`;
+                const url = `${API_BASE_URL}/api/entity?uuid=${charity.uuid}`;
                 try {
                     const response = await fetch(url);
                     if (response.ok) {
@@ -794,7 +812,7 @@
                         }
                         if (aisUuid) {
                             // Debug: show when fetching the AIS entity
-                            const aisUrl = `/api/entity?uuid=${aisUuid}`;
+                            const aisUrl = `${API_BASE_URL}/api/entity?uuid=${aisUuid}`;
                             console.log('Fetching AIS entity for:', aisUrl);
                             const aisResp = await fetch(aisUrl);
                             if (aisResp.ok) {
@@ -808,10 +826,47 @@
                             console.log('No AISId/AisUuid found in AnnualReports, Programs, or entityData');
                         }
                         // Fallback: show entity data if no AisUuid found
+                        // Add data property to charity if it doesn't exist
+                        if (!charity.data) {
+                            charity.data = {
+                                Name: charity.name,
+                                Abn: charity.abn,
+                                Status: entityData.data.Status,
+                                CharitySize: entityData.data.CharitySize,
+                                AddressSuburb: entityData.data.AddressSuburb || '',
+                                AddressStateOrProvince: entityData.data.State || charity.state || '',
+                                Website: entityData.data.Website || '',
+                                SummaryOfActivities: entityData.data.SummaryOfActivities || '',
+                                Beneficiaries: entityData.data.Beneficiaries || [],
+                                Programs: entityData.data.Programs || [],
+                                ResponsiblePersons: entityData.data.ResponsiblePersons || [],
+                                Documents: entityData.data.Documents || []
+                            };
+                        }
                         displayCharityCard(charity, entityData.data, null);
                         return;
                     }
-                } catch (e) { console.log('Error in fetchLatestAis:', e); }
+                } catch (e) { 
+                    console.log('Error in fetchLatestAis:', e); 
+                }
+                
+                // If we reach here, there was an error - ensure charity has data property before displaying
+                if (!charity.data) {
+                    charity.data = {
+                        Name: charity.name,
+                        Abn: charity.abn,
+                        Status: 'Unknown',
+                        CharitySize: 'Unknown',
+                        AddressSuburb: '',
+                        AddressStateOrProvince: charity.state || '',
+                        Website: '',
+                        SummaryOfActivities: 'No information available',
+                        Beneficiaries: [],
+                        Programs: [],
+                        ResponsiblePersons: [],
+                        Documents: []
+                    };
+                }
                 displayCharityCard(charity, null, null);
             }
             // --- Modern Dashboard Rendering ---
@@ -899,6 +954,18 @@
             }
             
             function updateOverviewSection(charity, aisData, year) {
+                // Safety check to ensure charity and charity.data exist
+                if (!charity || !charity.data) {
+                    console.error('Missing charity data in updateOverviewSection');
+                    document.getElementById('overview-section').innerHTML = `
+                        <div class="p-4 bg-red-50 text-red-800 rounded-lg">
+                            <h2 class="text-2xl font-bold">Error loading charity data</h2>
+                            <p>The charity information could not be loaded. Please try again later.</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
                 const statusColor = charity.data.Status === 'Registered' ? 'text-green-600' : 
                                   charity.data.Status === 'Revoked' ? 'text-red-600' : 'text-yellow-600';
                 
@@ -906,7 +973,7 @@
                     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
                         <div class="flex-1">
                             <div class="flex items-center gap-3 mb-4">
-                                <h2 class="text-4xl font-bold text-gray-900">${charity.data.Name}</h2>
+                                <h2 class="text-4xl font-bold text-gray-900">${charity.data.Name || charity.name || 'Unknown Charity'}</h2>
                                 <span class="indicator-dot ${charity.data.Status === 'Registered' ? 'status-active' : 'status-inactive'}"></span>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600 mb-4">
@@ -1373,7 +1440,7 @@
                     document.getElementById('trends-loading').classList.remove('hidden');
                     document.getElementById('trends-error').classList.add('hidden');
                     
-                    const response = await fetch(`/api/db/charity/${abn}/history`);
+                    const response = await fetch(`${API_BASE_URL}/api/historical?abn=${abn}`);
                     const data = await response.json();
                     
                     if (data.success && data.data.length > 0) {
