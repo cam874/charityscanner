@@ -556,7 +556,7 @@
     </div>
     <script>
         // API Configuration - Updated for unified views
-        const API_BASE_URL = '';
+        const API_BASE_URL = 'https://170.64.168.145';
         
         // Store the original fetch for our debug wrapper
         const originalFetch = window.fetch;
@@ -630,11 +630,11 @@
                 }
                 try {
                     // Use unified view for search suggestions
-                    const resp = await fetch(`${API_BASE_URL}/api/search-unified?q=${encodeURIComponent(keyword)}&limit=10`);
+                    const resp = await fetch(`${API_BASE_URL}/charities/v_charities_latest.json?charity_name__contains=${encodeURIComponent(keyword)}&_size=10`);
                     if (!resp.ok) throw new Error('Autocomplete failed');
                     const data = await resp.json();
-                    // Expect array of {abn, charity_name, revenue_category, total_revenue} objects
-                    autocompleteResults = Array.isArray(data) ? data : (data.results || []);
+                    // v_charities_latest returns {rows: [...]} format
+                    autocompleteResults = data.rows || [];
                     renderDropdown();
                 } catch (e) {
                     console.log('Autocomplete error:', e);
@@ -653,13 +653,23 @@
                     option.className = `autocomplete-option ${idx === autocompleteIndex ? 'selected' : ''}`;
                     
                     // Create rich dropdown with charity name and revenue info
-                    const charityName = item.charity_name || item.name || 'Unknown';
-                    const revenueInfo = item.total_revenue ? ` • ${formatCurrency(item.total_revenue)}` : '';
-                    const sizeInfo = item.revenue_category ? ` • ${item.revenue_category}` : '';
+                    const charityName = item[1] || 'Unknown';  // charity_name is index 1
+                    const totalRevenue = item[3];  // total_revenue is index 3
+                    const revenueInfo = totalRevenue ? ` • ${formatCurrency(totalRevenue)}` : '';
+                    const abn = item[0];  // abn is index 0
+                    
+                    // Create revenue category from amount
+                    let sizeInfo = '';
+                    if (totalRevenue) {
+                        const revenue = parseFloat(totalRevenue);
+                        if (revenue >= 1000000) sizeInfo = ' • Large';
+                        else if (revenue >= 250000) sizeInfo = ' • Medium';
+                        else if (revenue > 0) sizeInfo = ' • Small';
+                    }
                     
                     option.innerHTML = `
                         <div class="font-medium">${charityName}</div>
-                        <div class="text-xs text-gray-500">ABN: ${item.abn || 'N/A'}${revenueInfo}${sizeInfo}</div>
+                        <div class="text-xs text-gray-500">ABN: ${abn || 'N/A'}${revenueInfo}${sizeInfo}</div>
                     `;
                     
                     option.addEventListener('mousedown', (e) => {
@@ -674,15 +684,46 @@
             function selectAutocomplete(idx) {
                 if (autocompleteResults[idx]) {
                     const selectedCharity = autocompleteResults[idx];
-                    searchInput.value = selectedCharity.charity_name || selectedCharity.name;
+                    searchInput.value = selectedCharity[1];  // charity_name
                     dropdown.classList.add('hidden');
                     
-                    // Show single charity result directly from unified data
+                    // Show single charity result directly from view data
                     showLoading(`Loading "${searchInput.value}"...`);
-                    processUnifiedSearchResults([selectedCharity]);
+                    processViewSearchResults([selectedCharity]);
                     
                     autocompleteResults = [];
                     autocompleteIndex = -1;
+                }
+            }
+
+            function processViewSearchResults(charities) {
+                console.log('🎯 Processing view search results:', charities);
+                hideLoading();
+                
+                charityResultsContainer.innerHTML = '';
+                
+                // Convert array format to object format for easier handling
+                const convertedCharities = charities.map(charity => ({
+                    abn: charity[0],
+                    charity_name: charity[1], 
+                    latest_year: charity[2],
+                    total_revenue: charity[3],
+                    state: charity[4],
+                    total_expenses: charity[5],
+                    total_assets: charity[6],
+                    total_liabilities: charity[7],
+                    revenue_category: charity[3] ? (
+                        parseFloat(charity[3]) >= 1000000 ? 'Large' :
+                        parseFloat(charity[3]) >= 250000 ? 'Medium' : 'Small'
+                    ) : 'Unknown'
+                }));
+                
+                // If single result, show dashboard directly
+                if (convertedCharities.length === 1) {
+                    displayCharityDashboardFromView(convertedCharities[0]);
+                } else {
+                    // Multiple results - show selection list
+                    displayViewSearchResults(convertedCharities);
                 }
             }
 
@@ -712,6 +753,41 @@
                                     <div><strong>ABN:</strong> ${charity.abn}</div>
                                     <div><strong>Size:</strong> ${charity.revenue_category || 'Unknown'}</div>
                                     ${charity.latest_fy ? `<div><strong>Latest Data:</strong> ${charity.latest_fy}</div>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-lg font-bold text-green-600">${formatCurrency(charity.total_revenue)}</div>
+                                <div class="text-sm text-gray-500">Revenue</div>
+                                ${charity.total_expenses ? `
+                                    <div class="text-sm text-gray-600 mt-1">${formatCurrency(charity.total_expenses)} expenses</div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                charityResultsContainer.innerHTML = `
+                    <div class="max-w-4xl mx-auto">
+                        <h2 class="text-2xl font-bold text-white mb-6 text-center">
+                            Found ${charities.length} ${charities.length === 1 ? 'charity' : 'charities'}
+                        </h2>
+                        ${resultsHtml}
+                    </div>
+                `;
+            }
+            
+            function displayViewSearchResults(charities) {
+                const resultsHtml = charities.map(charity => `
+                    <div class="bg-white rounded-xl shadow-lg p-6 mb-4 cursor-pointer hover:shadow-xl transition-shadow duration-200" 
+                         onclick="displayCharityDashboardFromView(${JSON.stringify(charity).replace(/"/g, '&quot;')})">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">${charity.charity_name}</h3>
+                                <div class="text-sm text-gray-600 space-y-1">
+                                    <div><strong>ABN:</strong> ${charity.abn}</div>
+                                    <div><strong>Size:</strong> ${charity.revenue_category || 'Unknown'}</div>
+                                    ${charity.latest_year ? `<div><strong>Latest Data:</strong> ${charity.latest_year}</div>` : ''}
+                                    ${charity.state ? `<div><strong>State:</strong> ${charity.state}</div>` : ''}
                                 </div>
                             </div>
                             <div class="text-right">
@@ -792,15 +868,15 @@
                 }
                 showLoading(`Searching for "${charityName}"...`);
                 
-                // Use unified search endpoint
-                const url = `${API_BASE_URL}/api/search-unified?q=${encodeURIComponent(charityName)}&limit=20`;
+                // Use fast charities view for search
+                const url = `${API_BASE_URL}/charities/v_charities_latest.json?charity_name__contains=${encodeURIComponent(charityName)}&_size=20`;
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Search request failed. Status: ${response.status}`);
                     const data = await response.json();
                     
-                    // Unified API returns direct array or {results: []} 
-                    const results = Array.isArray(data) ? data : (data.results || []);
+                    // v_charities_latest returns {rows: [...]} format 
+                    const results = data.rows || [];
                     
                     if (results.length === 0) {
                         displayError(`No charities found matching "${charityName}".`);
@@ -808,7 +884,7 @@
                     }
                     
                     // Process unified results directly (no need to fetch AIS separately)
-                    processUnifiedSearchResults(results);
+                    processViewSearchResults(results);
                 } catch (error) {
                     console.error("Error searching for charity:", error);
                     displayError(error.message);
@@ -955,6 +1031,40 @@
                     years.push(latestYear - i);
                 }
                 return years;
+            }
+            
+            function displayCharityDashboardFromView(charity) {
+                console.log('🎯 Displaying charity dashboard from view:', charity);
+                
+                // Convert view data to format expected by dashboard
+                const charityData = {
+                    data: {
+                        Name: charity.charity_name,
+                        Abn: charity.abn,
+                        Status: 'Registered', // Default assumption
+                        CharitySize: charity.revenue_category || 'Unknown',
+                        AddressSuburb: '',
+                        AddressStateOrProvince: charity.state || '',
+                        Website: '',
+                        SummaryOfActivities: 'Financial data available for ' + charity.latest_year,
+                        Beneficiaries: [],
+                        Programs: [],
+                        ResponsiblePersons: [],
+                        Documents: []
+                    }
+                };
+                
+                // Create basic AIS data from view
+                const aisData = {
+                    RevenueTotal: charity.total_revenue,
+                    ExpenseTotal: charity.total_expenses,
+                    StatementYear: charity.latest_year,
+                    // Add placeholder values for other fields
+                    ExpenseEmployees: 0,
+                    NetSurplusDeficit: (parseFloat(charity.total_revenue || 0) - parseFloat(charity.total_expenses || 0)) || 0
+                };
+                
+                displayCharityDashboard(charityData, aisData, charity.latest_year);
             }
             
             // --- Modern Dashboard Rendering ---
