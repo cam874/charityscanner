@@ -791,10 +791,17 @@
                         if (entityData.data && Array.isArray(entityData.data.AnnualReports)) {
                             const aisReports = entityData.data.AnnualReports
                                 .filter(r => r.IsAIS && r.AISId)
-                                .sort((a, b) => Number(b.Year) - Number(a.Year));
+                                .sort((a, b) => Number(b.Year) - Number(a.Year)); // Sort by year descending (newest first)
+                            
                             if (aisReports.length > 0) {
                                 aisUuid = aisReports[0].AISId;
-                                console.log('Using AISId from latest AnnualReport:', aisUuid);
+                                console.log('✅ Using AISId from latest AnnualReport:', {
+                                    aisUuid,
+                                    year: aisReports[0].Year,
+                                    totalAvailable: aisReports.length
+                                });
+                            } else {
+                                console.log('⚠️ No AIS reports found in AnnualReports');
                             }
                         }
                         // 2. Fallback: Try to get AisUuid from the first available program
@@ -813,17 +820,19 @@
                         if (aisUuid) {
                             // Debug: show when fetching the AIS entity
                             const aisUrl = `${API_BASE_URL}/api/entity?uuid=${aisUuid}`;
-                            console.log('Fetching AIS entity for:', aisUrl);
+                            console.log('🔍 Fetching AIS entity for:', aisUrl);
                             const aisResp = await fetch(aisUrl);
                             if (aisResp.ok) {
                                 const aisData = await aisResp.json();
-                                displayCharityCard(charity, aisData.data, aisData.data.StatementYear);
+                                const aisYear = aisData.data.StatementYear || aisData.data.ReportingYear;
+                                console.log('📊 AIS data year found:', aisYear);
+                                displayCharityCard(charity, aisData.data, aisYear);
                                 return;
                             } else {
-                                console.log('AIS entity fetch failed:', aisResp.status);
+                                console.log('❌ AIS entity fetch failed:', aisResp.status);
                             }
                         } else {
-                            console.log('No AISId/AisUuid found in AnnualReports, Programs, or entityData');
+                            console.log('⚠️ No AISId/AisUuid found in AnnualReports, Programs, or entityData');
                         }
                         // Fallback: show entity data if no AisUuid found
                         // Add data property to charity if it doesn't exist
@@ -869,11 +878,51 @@
                 }
                 displayCharityCard(charity, null, null);
             }
+            
+            // Function to determine the latest available reporting year
+            function determineLatestYear(aisData, providedYear) {
+                // Priority 1: If we have a specific year from AIS data, use it
+                if (providedYear && !isNaN(parseInt(providedYear))) {
+                    console.log('📅 Using provided year:', providedYear);
+                    return parseInt(providedYear);
+                }
+                
+                // Priority 2: Check AIS data for StatementYear or ReportingYear
+                if (aisData) {
+                    if (aisData.StatementYear && !isNaN(parseInt(aisData.StatementYear))) {
+                        console.log('📅 Using AIS StatementYear:', aisData.StatementYear);
+                        return parseInt(aisData.StatementYear);
+                    }
+                    if (aisData.ReportingYear && !isNaN(parseInt(aisData.ReportingYear))) {
+                        console.log('📅 Using AIS ReportingYear:', aisData.ReportingYear);
+                        return parseInt(aisData.ReportingYear);
+                    }
+                }
+                
+                // Priority 3: Use current year minus 1 (most recent completed financial year)
+                const currentYear = new Date().getFullYear();
+                const assumedLatestYear = currentYear - 1; // 2024 for 2025
+                console.log('📅 No specific year found, assuming latest completed year:', assumedLatestYear);
+                return assumedLatestYear;
+            }
+            
+            // Function to get dynamic year range for charts
+            function getDynamicYearRange(latestYear, yearsBack = 5) {
+                const years = [];
+                for (let i = yearsBack - 1; i >= 0; i--) {
+                    years.push(latestYear - i);
+                }
+                return years;
+            }
+            
             // --- Modern Dashboard Rendering ---
             function displayCharityDashboard(charity, aisData, year) {
                 // Store globally for later use by historical data loading
                 window.currentCharity = charity;
                 window.currentAisData = aisData;
+                
+                // Determine the latest available year
+                window.currentReportingYear = determineLatestYear(aisData, year);
                 
                 charityResultsContainer.innerHTML = '';
                 dashboardContainer.classList.remove('hidden');
@@ -924,7 +973,7 @@
                 
                 // Update KPIs
                 updateKPIs(revenuePerFte, volunteerRatio, operatingMargin, wageRatio, income);
-                updateOrganizationStatus(charity, year);
+                updateOrganizationStatus(charity, window.currentReportingYear);
                 
                 // Update sections
                 updateProgramsSection(charity);
@@ -940,6 +989,21 @@
                 document.getElementById('expenses-amount').textContent = formatCurrency(expenses);
                 document.getElementById('surplus-amount').textContent = formatCurrency(surplus);
                 document.getElementById('efficiency-amount').textContent = programRatio + '%';
+                
+                // Add data source indicator to show which year the financial data is from
+                const dataSourceElement = document.getElementById('financial-data-source');
+                if (dataSourceElement) {
+                    const year = window.currentReportingYear || 'Latest';
+                    const hasAisData = window.currentAisData && (income > 0 || expenses > 0);
+                    
+                    if (hasAisData) {
+                        dataSourceElement.textContent = `📊 Financial data from ${year} AIS report`;
+                        dataSourceElement.className = 'text-xs text-green-600 font-medium mt-1';
+                    } else {
+                        dataSourceElement.textContent = `⚠️ Limited financial data available`;
+                        dataSourceElement.className = 'text-xs text-yellow-600 font-medium mt-1';
+                    }
+                }
                 
                 // Update trend indicators (simplified - would need historical data for real trends)
                 updateTrendIndicator('revenue-trend', surplus > 0 ? 'up' : surplus < 0 ? 'down' : 'stable');
@@ -1165,7 +1229,16 @@
                 } mr-2`;
                 
                 document.getElementById('size-category').textContent = charity.data.CharitySize || 'Not specified';
-                document.getElementById('reporting-year').textContent = year || 'Latest available';
+                
+                // Display the reporting year with context
+                const reportingYearElement = document.getElementById('reporting-year');
+                if (year && !isNaN(parseInt(year))) {
+                    reportingYearElement.textContent = `${year} (AIS data)`;
+                } else if (window.currentReportingYear) {
+                    reportingYearElement.textContent = `${window.currentReportingYear} (estimated latest)`;
+                } else {
+                    reportingYearElement.textContent = 'Latest available';
+                }
                 
                 // Calculate transparency score based on available data
                 let transparencyScore = 0;
@@ -1445,6 +1518,23 @@
                     
                     if (data.success && data.data.length > 0) {
                         historicalData = data.data; // Store in global variable
+                        
+                        // Update the current reporting year based on historical data if needed
+                        const sortedHistorical = data.data.sort((a, b) => b.report_year - a.report_year);
+                        const latestHistoricalYear = sortedHistorical[0].report_year;
+                        
+                        // Use the latest year from historical data if it's more recent than our current estimate
+                        if (!window.currentReportingYear || latestHistoricalYear > window.currentReportingYear) {
+                            console.log('📅 Updating reporting year from historical data:', latestHistoricalYear);
+                            window.currentReportingYear = latestHistoricalYear;
+                            
+                            // Update the display
+                            const reportingYearElement = document.getElementById('reporting-year');
+                            if (reportingYearElement) {
+                                reportingYearElement.textContent = `${latestHistoricalYear} (from historical data)`;
+                            }
+                        }
+                        
                         createTrendsChart(data.data);
                         setupTrendButtons(data.data);
                     } else {
@@ -1678,9 +1768,11 @@
                         `📊 Historical data available for ${historicalData.length} years (revenue breakdown estimated)`;
                 } else {
                     // Fallback to simulated data if no historical data available
-                    // Use years 2019-2023 as baseline (when comprehensive reporting was well established)
-                    const currentYear = 2023; // Use 2023 as latest available data
-                    years = [2019, 2020, 2021, 2022, 2023];
+                    // Use dynamic year range based on the latest available data
+                    const latestYear = window.currentReportingYear || (new Date().getFullYear() - 1);
+                    years = getDynamicYearRange(latestYear, 5);
+                    
+                    console.log('📅 Using dynamic year range for revenue chart:', years, 'Latest year:', latestYear);
                     
                     governmentGrants = years.map((year, i) => {
                         const base = parseFloat(aisData?.IncomeGovernmentGrants) || 0;
@@ -1702,11 +1794,11 @@
                         return base * (0.8 + Math.random() * 0.4);
                     });
                     
-                    console.log('Using simulated revenue data - no historical data available');
+                    console.log('Using simulated revenue data with dynamic years - no historical data available');
                     
                     // Update data source indicator
                     document.getElementById('revenue-data-source').textContent = 
-                        '⚠️ Simulated historical data - actual multi-year data not available';
+                        `⚠️ Simulated historical data for years ${years[0]}-${years[years.length-1]} - actual multi-year data not available`;
                 }
                 
                 revenueChart = new Chart(ctx, {
@@ -1813,8 +1905,10 @@
                         `📊 Historical data available for ${historicalData.length} years (expense breakdown estimated)`;
                 } else {
                     // Fallback to simulated data
-                    const currentYear = 2023; // Use 2023 as latest available data
-                    years = [2019, 2020, 2021, 2022, 2023];
+                    const latestYear = window.currentReportingYear || (new Date().getFullYear() - 1);
+                    years = getDynamicYearRange(latestYear, 5);
+                    
+                    console.log('📅 Using dynamic year range for expense chart:', years, 'Latest year:', latestYear);
                     
                     employeeCosts = years.map((year, i) => {
                         const base = parseFloat(aisData?.ExpenseEmployees) || 0;
@@ -1831,11 +1925,11 @@
                         return base * (0.8 + Math.random() * 0.4);
                     });
                     
-                    console.log('Using simulated expense data - no historical data available');
+                    console.log('Using simulated expense data with dynamic years - no historical data available');
                     
                     // Update data source indicator
                     document.getElementById('expense-data-source').textContent = 
-                        '⚠️ Simulated historical data - actual multi-year data not available';
+                        `⚠️ Simulated historical data for years ${years[0]}-${years[years.length-1]} - actual multi-year data not available`;
                 }
                 
                 expenseChart = new Chart(ctx, {
@@ -1921,8 +2015,10 @@
                     });
                 } else {
                     // Fallback to simulated data
-                    const currentYear = 2023; // Use 2023 as latest available data
-                    years = [2019, 2020, 2021, 2022, 2023];
+                    const latestYear = window.currentReportingYear || (new Date().getFullYear() - 1);
+                    years = getDynamicYearRange(latestYear, 5);
+                    
+                    console.log('📅 Using dynamic year range for balance sheet chart:', years, 'Latest year:', latestYear);
                     
                     assets = years.map((year, i) => {
                         const base = parseFloat(aisData?.TotalAssets) || 1000000;
@@ -1936,7 +2032,7 @@
                     
                     netAssets = assets.map((asset, i) => asset - liabilities[i]);
                     
-                    console.log('Using simulated balance sheet data - no historical data available');
+                    console.log('Using simulated balance sheet data with dynamic years - no historical data available');
                 }
                 
                 balanceChart = new Chart(ctx, {
