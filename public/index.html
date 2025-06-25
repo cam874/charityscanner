@@ -555,7 +555,7 @@
         <div id="charity-results-container"></div>
     </div>
     <script>
-        // API Configuration - Updated for unified views
+        // API Configuration - Update this with your VPS IP address
         const API_BASE_URL = '';
         
         // Store the original fetch for our debug wrapper
@@ -629,12 +629,11 @@
                     return;
                 }
                 try {
-                    // Use unified view for search suggestions
-                    const resp = await fetch(`${API_BASE_URL}/charities/v_charities_latest.json?charity_name__contains=${encodeURIComponent(keyword)}&_size=10`);
+                    const resp = await fetch(`${API_BASE_URL}/api/autocomplete?keyword=${encodeURIComponent(keyword)}`);
                     if (!resp.ok) throw new Error('Autocomplete failed');
                     const data = await resp.json();
-                    // v_charities_latest returns {rows: [...]} format
-                    autocompleteResults = data.rows || [];
+                    // API may return array directly, or wrapped in suggestions/results
+                    autocompleteResults = Array.isArray(data) ? data : (data.suggestions || data.results || []);
                     renderDropdown();
                 } catch (e) {
                     console.log('Autocomplete error:', e);
@@ -652,24 +651,13 @@
                     const option = document.createElement('div');
                     option.className = `autocomplete-option ${idx === autocompleteIndex ? 'selected' : ''}`;
                     
-                    // Create rich dropdown with charity name and revenue info
-                    const charityName = item[1] || 'Unknown';  // charity_name is index 1
-                    const totalRevenue = item[3];  // total_revenue is index 3
-                    const revenueInfo = totalRevenue ? ` • ${formatCurrency(totalRevenue)}` : '';
-                    const abn = item[0];  // abn is index 0
-                    
-                    // Create revenue category from amount
-                    let sizeInfo = '';
-                    if (totalRevenue) {
-                        const revenue = parseFloat(totalRevenue);
-                        if (revenue >= 1000000) sizeInfo = ' • Large';
-                        else if (revenue >= 250000) sizeInfo = ' • Medium';
-                        else if (revenue > 0) sizeInfo = ' • Small';
-                    }
+                    // Handle item as an object with name, abn properties
+                    const charityName = item.name || 'Unknown';
+                    const abn = item.abn || 'N/A';
                     
                     option.innerHTML = `
                         <div class="font-medium">${charityName}</div>
-                        <div class="text-xs text-gray-500">ABN: ${abn || 'N/A'}${revenueInfo}${sizeInfo}</div>
+                        <div class="text-xs text-gray-500">ABN: ${abn}</div>
                     `;
                     
                     option.addEventListener('mousedown', (e) => {
@@ -684,12 +672,11 @@
             function selectAutocomplete(idx) {
                 if (autocompleteResults[idx]) {
                     const selectedCharity = autocompleteResults[idx];
-                    searchInput.value = selectedCharity[1];  // charity_name
+                    searchInput.value = selectedCharity.name;
                     dropdown.classList.add('hidden');
                     
-                    // Show single charity result directly from view data
-                    showLoading(`Loading "${searchInput.value}"...`);
-                    processViewSearchResults([selectedCharity]);
+                    // Trigger a full search for the selected charity
+                    searchCharities();
                     
                     autocompleteResults = [];
                     autocompleteIndex = -1;
@@ -868,23 +855,21 @@
                 }
                 showLoading(`Searching for "${charityName}"...`);
                 
-                // Use fast charities view for search
-                const url = `${API_BASE_URL}/charities/v_charities_latest.json?charity_name__contains=${encodeURIComponent(charityName)}&_size=20`;
+                const url = `${API_BASE_URL}/api/search?name=${encodeURIComponent(charityName)}`;
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Search request failed. Status: ${response.status}`);
                     const data = await response.json();
                     
-                    // v_charities_latest returns {rows: [...]} format 
-                    const results = data.rows || [];
+                    const results = data.results || [];
                     
                     if (results.length === 0) {
                         displayError(`No charities found matching "${charityName}".`);
                         return;
                     }
                     
-                    // Process unified results directly (no need to fetch AIS separately)
-                    processViewSearchResults(results);
+                    // Process search results
+                    processSearchResults(results);
                 } catch (error) {
                     console.error("Error searching for charity:", error);
                     displayError(error.message);
@@ -1896,6 +1881,9 @@
             function handleSearch() {
                 const searchTerm = searchInput.value.trim();
                 searchForCharities(searchTerm);
+            }
+            function searchCharities() {
+                handleSearch();
             }
             searchButton.addEventListener('click', handleSearch);
             searchInput.addEventListener('keyup', (event) => {
