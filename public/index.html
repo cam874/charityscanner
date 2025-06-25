@@ -555,7 +555,7 @@
         <div id="charity-results-container"></div>
     </div>
     <script>
-        // API Configuration - Update this with your VPS IP address
+        // API Configuration - Updated for unified views
         const API_BASE_URL = '';
         
         // Store the original fetch for our debug wrapper
@@ -629,13 +629,15 @@
                     return;
                 }
                 try {
-                    const resp = await fetch(`${API_BASE_URL}/api/autocomplete?keyword=${encodeURIComponent(keyword)}`);
+                    // Use unified view for search suggestions
+                    const resp = await fetch(`${API_BASE_URL}/api/search-unified?q=${encodeURIComponent(keyword)}&limit=10`);
                     if (!resp.ok) throw new Error('Autocomplete failed');
                     const data = await resp.json();
-                    // API returns array directly, not wrapped in results
+                    // Expect array of {abn, charity_name, revenue_category, total_revenue} objects
                     autocompleteResults = Array.isArray(data) ? data : (data.results || []);
                     renderDropdown();
                 } catch (e) {
+                    console.log('Autocomplete error:', e);
                     dropdown.classList.add('hidden');
                 }
             }
@@ -649,7 +651,17 @@
                 autocompleteResults.forEach((item, idx) => {
                     const option = document.createElement('div');
                     option.className = `autocomplete-option ${idx === autocompleteIndex ? 'selected' : ''}`;
-                    option.textContent = item.name; // <-- fix here
+                    
+                    // Create rich dropdown with charity name and revenue info
+                    const charityName = item.charity_name || item.name || 'Unknown';
+                    const revenueInfo = item.total_revenue ? ` • ${formatCurrency(item.total_revenue)}` : '';
+                    const sizeInfo = item.revenue_category ? ` • ${item.revenue_category}` : '';
+                    
+                    option.innerHTML = `
+                        <div class="font-medium">${charityName}</div>
+                        <div class="text-xs text-gray-500">ABN: ${item.abn || 'N/A'}${revenueInfo}${sizeInfo}</div>
+                    `;
+                    
                     option.addEventListener('mousedown', (e) => {
                         e.preventDefault();
                         selectAutocomplete(idx);
@@ -661,44 +673,66 @@
 
             function selectAutocomplete(idx) {
                 if (autocompleteResults[idx]) {
-                    searchInput.value = autocompleteResults[idx].name;
+                    const selectedCharity = autocompleteResults[idx];
+                    searchInput.value = selectedCharity.charity_name || selectedCharity.name;
                     dropdown.classList.add('hidden');
+                    
+                    // Show single charity result directly from unified data
+                    showLoading(`Loading "${searchInput.value}"...`);
+                    processUnifiedSearchResults([selectedCharity]);
+                    
                     autocompleteResults = [];
                     autocompleteIndex = -1;
-                    // Only display the selected charity result
-                    showLoading(`Searching for "${searchInput.value}"...`);
-                    
-                    const searchUrl = `${API_BASE_URL}/api/search?name=${encodeURIComponent(searchInput.value)}`;
-                    console.log('🔍 Searching with URL:', searchUrl);
-                    
-                    fetch(searchUrl)
-                        .then(resp => {
-                            console.log('📡 Search response status:', resp.status);
-                            return resp.json();
-                        })
-                        .then(data => {
-                            console.log('📄 Search response data:', data);
-                            if (data.results && data.results.length > 0) {
-                                // Find the exact match (case-insensitive)
-                                const match = data.results.find(c => c.data && c.data.Name && c.data.Name.toLowerCase() === searchInput.value.toLowerCase());
-                                if (match) {
-                                    console.log('✅ Found exact match:', match);
-                                    processSearchResults([match]);
-                                } else {
-                                    // fallback: show first result
-                                    console.log('⚠️ No exact match, using first result:', data.results[0]);
-                                    processSearchResults([data.results[0]]);
-                                }
-                            } else {
-                                console.log('❌ No results found in search response');
-                                displayError(`No charities found matching "${searchInput.value}".`);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('🚨 Search error:', error);
-                            displayError(error.message);
-                        });
                 }
+            }
+
+            function processUnifiedSearchResults(charities) {
+                console.log('🎯 Processing unified search results:', charities);
+                hideLoading();
+                
+                charityResultsContainer.innerHTML = '';
+                
+                // If single result, show dashboard directly
+                if (charities.length === 1) {
+                    displayCharityDashboardFromUnified(charities[0]);
+                } else {
+                    // Multiple results - show selection list
+                    displayUnifiedSearchResults(charities);
+                }
+            }
+            
+            function displayUnifiedSearchResults(charities) {
+                const resultsHtml = charities.map(charity => `
+                    <div class="bg-white rounded-xl shadow-lg p-6 mb-4 cursor-pointer hover:shadow-xl transition-shadow duration-200" 
+                         onclick="displayCharityDashboardFromUnified(${JSON.stringify(charity).replace(/"/g, '&quot;')})">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <h3 class="text-xl font-bold text-gray-900 mb-2">${charity.charity_name}</h3>
+                                <div class="text-sm text-gray-600 space-y-1">
+                                    <div><strong>ABN:</strong> ${charity.abn}</div>
+                                    <div><strong>Size:</strong> ${charity.revenue_category || 'Unknown'}</div>
+                                    ${charity.latest_fy ? `<div><strong>Latest Data:</strong> ${charity.latest_fy}</div>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-lg font-bold text-green-600">${formatCurrency(charity.total_revenue)}</div>
+                                <div class="text-sm text-gray-500">Revenue</div>
+                                ${charity.total_expenses ? `
+                                    <div class="text-sm text-gray-600 mt-1">${formatCurrency(charity.total_expenses)} expenses</div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                charityResultsContainer.innerHTML = `
+                    <div class="max-w-4xl mx-auto">
+                        <h2 class="text-2xl font-bold text-white mb-6 text-center">
+                            Found ${charities.length} ${charities.length === 1 ? 'charity' : 'charities'}
+                        </h2>
+                        ${resultsHtml}
+                    </div>
+                `;
             }
 
             searchInput.addEventListener('input', (e) => {
@@ -757,16 +791,24 @@
                     return;
                 }
                 showLoading(`Searching for "${charityName}"...`);
-                const url = `${API_BASE_URL}/api/search?name=${encodeURIComponent(charityName)}`;
+                
+                // Use unified search endpoint
+                const url = `${API_BASE_URL}/api/search-unified?q=${encodeURIComponent(charityName)}&limit=20`;
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Search request failed. Status: ${response.status}`);
                     const data = await response.json();
-                    if (!data.results || data.results.length === 0) {
+                    
+                    // Unified API returns direct array or {results: []} 
+                    const results = Array.isArray(data) ? data : (data.results || []);
+                    
+                    if (results.length === 0) {
                         displayError(`No charities found matching "${charityName}".`);
                         return;
                     }
-                    processSearchResults(data.results);
+                    
+                    // Process unified results directly (no need to fetch AIS separately)
+                    processUnifiedSearchResults(results);
                 } catch (error) {
                     console.error("Error searching for charity:", error);
                     displayError(error.message);
@@ -932,6 +974,27 @@
                 let fullTimeStaff = 0, partTimeStaff = 0, casualStaff = 0, volunteers = 0, fteStaff = 0;
                 
                 if (aisData) {
+                    // Debug: Log the actual AIS data structure
+                    console.log('🔍 Raw AIS Data received:', aisData);
+                    console.log('🔍 AIS Data keys:', Object.keys(aisData));
+                    
+                    // Log specific financial fields to verify data
+                    console.log('💰 Financial Data Fields:', {
+                        RevenueTotal: aisData.RevenueTotal,
+                        ExpenseTotal: aisData.ExpenseTotal,
+                        ExpenseEmployees: aisData.ExpenseEmployees,
+                        NetSurplusDeficit: aisData.NetSurplusDeficit
+                    });
+                    
+                    // Log HR fields to verify staffing data  
+                    console.log('👥 HR Data Fields:', {
+                        HrFteStaff: aisData.HrFteStaff,
+                        HrFullTimeEmployees: aisData.HrFullTimeEmployees,
+                        HrPartTimeEmployees: aisData.HrPartTimeEmployees,
+                        HrCasualEmployees: aisData.HrCasualEmployees,
+                        HrUnpainVolunteers: aisData.HrUnpainVolunteers
+                    });
+                    
                     income = parseFloat(aisData.RevenueTotal) || 0;
                     expenses = parseFloat(aisData.ExpenseTotal) || 0;
                     wages = parseFloat(aisData.ExpenseEmployees) || 0;
@@ -942,6 +1005,22 @@
                     casualStaff = parseInt(aisData.HrCasualEmployees) || 0;
                     volunteers = parseInt(aisData.HrUnpainVolunteers) || 0;
                     fteStaff = parseFloat(aisData.HrFteStaff) || 0;
+                    
+                    // Debug: Log the parsed values
+                    console.log('📊 Parsed Financial Values:', {
+                        income: income,
+                        expenses: expenses, 
+                        wages: wages,
+                        surplus: surplus
+                    });
+                    
+                    console.log('📊 Parsed HR Values:', {
+                        fullTimeStaff: fullTimeStaff,
+                        partTimeStaff: partTimeStaff,
+                        casualStaff: casualStaff,
+                        volunteers: volunteers,
+                        fteStaff: fteStaff
+                    });
                 }
                 
                 // Calculate derived metrics
@@ -2102,11 +2181,22 @@
                 const avgWagePerFTE = fteStaff > 0 ? wages / fteStaff : 0;
                 const volunteerToStaffRatio = totalPaidStaff > 0 ? volunteers / totalPaidStaff : 0;
                 
+                // Debug log for salary story
+                console.log('💰 Salary Story Debug:', {
+                    totalPaidStaff,
+                    fteStaff, 
+                    wages,
+                    avgWagePerFTE,
+                    volunteers,
+                    volunteerToStaffRatio
+                });
+                
                 salaryStoryContent.innerHTML = `
                     <div class="bg-white rounded-lg p-4 border-l-4 border-blue-500">
                         <h4 class="font-semibold text-gray-800 mb-2">Total Investment in People</h4>
                         <div class="text-3xl font-bold text-blue-600 mb-1">${formatCurrency(wages)}</div>
                         <div class="text-sm text-gray-600">Employee expenses</div>
+                        <div class="text-xs text-gray-400 mt-1">Raw: ${wages}</div>
                     </div>
                     
                     <div class="bg-white rounded-lg p-4 border-l-4 border-green-500">
@@ -2114,6 +2204,7 @@
                         <div class="text-3xl font-bold text-green-600 mb-1">${totalPaidStaff}</div>
                         <div class="text-sm text-gray-600">Paid staff (${fteStaff} FTE)</div>
                         <div class="text-xs text-gray-500 mt-1">Full: ${fullTime} | Part: ${partTime} | Casual: ${casual}</div>
+                        <div class="text-xs text-gray-400 mt-1">FTE Raw: ${fteStaff}</div>
                     </div>
                     
                     <div class="bg-white rounded-lg p-4 border-l-4 border-purple-500">
@@ -2127,6 +2218,7 @@
                         <h4 class="font-semibold text-gray-800 mb-2">Investment per FTE</h4>
                         <div class="text-3xl font-bold text-orange-600 mb-1">${formatCurrency(avgWagePerFTE)}</div>
                         <div class="text-sm text-gray-600">Average per full-time equivalent</div>
+                        <div class="text-xs text-gray-400 mt-1">Calc: ${wages} ÷ ${fteStaff}</div>
                     </div>
                 `;
                 
