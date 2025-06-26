@@ -1,0 +1,496 @@
+import React, { useState, useEffect, createContext, useContext, useCallback, useMemo, useRef } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Search, Moon, Sun, X, Check, ChevronsUpDown, Info, ArrowLeft, PlusCircle, MinusCircle, LayoutDashboard, List, HelpingHand } from 'lucide-react';
+
+// --- MAGIC UI & ANIMATION STYLES ---
+// Since we can't use external CSS files, we'll inject keyframe animations directly.
+const मैजिकUICSS = `
+@keyframes meteor {
+    0% { transform: rotate(215deg) translateX(0); opacity: 1; }
+    70% { opacity: 1; }
+    100% { transform: rotate(215deg) translateX(-500px); opacity: 0; }
+}
+@keyframes shimmer {
+    0%, 90%, 100% {
+      background-position: calc(-100% - var(--shimmer-width)) 0;
+    }
+    30%, 60% {
+      background-position: calc(100% + var(--shimmer-width)) 0;
+    }
+}
+@keyframes shine {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes blur-in {
+    0% { filter: blur(10px); opacity: 0; }
+    100% { filter: blur(0px); opacity: 1; }
+}
+`;
+
+// --- MOCK DATA ---
+const mockCharities = [
+    { id: '1', abn: '11123456789', name: 'Australian Red Cross', category: 'Humanitarian', state: 'National', revenue: 1050000000, expenses: 980000000, staff: 3200, volunteers: 35000, website: 'https://www.redcross.org.au', description: 'Providing relief in times of crisis and care when its needed most.', transparency_score: 95, financial_efficiency: 0.93, historical_data: [ { year: 2020, revenue: 950, expenses: 880 }, { year: 2021, revenue: 1000, expenses: 920 }, { year: 2022, revenue: 1020, expenses: 950 }, { year: 2023, revenue: 1050, expenses: 980 } ] },
+    { id: '2', abn: '22987654321', name: 'The Smith Family', category: 'Children & Youth', state: 'National', revenue: 145000000, expenses: 125000000, staff: 850, volunteers: 8000, website: 'https://www.thesmithfamily.com.au', description: 'A national charity helping young Australians from disadvantaged backgrounds succeed at school.', transparency_score: 92, financial_efficiency: 0.86, historical_data: [ { year: 2020, revenue: 130, expenses: 110 }, { year: 2021, revenue: 135, expenses: 115 }, { year: 2022, revenue: 140, expenses: 120 }, { year: 2023, revenue: 145, expenses: 125 } ] },
+    { id: '3', abn: '33111222333', name: 'RSPCA Australia', category: 'Animal Welfare', state: 'National', revenue: 175000000, expenses: 168000000, staff: 1200, volunteers: 5000, website: 'https://www.rspca.org.au', description: 'Australia\'s leading animal welfare organisation and one of Australia\'s most trusted charities.', transparency_score: 88, financial_efficiency: 0.96, historical_data: [ { year: 2020, revenue: 160, expenses: 155 }, { year: 2021, revenue: 165, expenses: 160 }, { year: 2022, revenue: 170, expenses: 165 }, { year: 2023, revenue: 175, expenses: 168 } ] },
+    { id: '4', abn: '44555666777', name: 'OzHarvest', category: 'Food Rescue', state: 'National', revenue: 25000000, expenses: 22000000, staff: 200, volunteers: 2500, website: 'https://www.ozharvest.org', description: 'Rescuing surplus food to feed people in need across Australia.', transparency_score: 98, financial_efficiency: 0.88, historical_data: [ { year: 2020, revenue: 20, expenses: 18 }, { year: 2021, revenue: 22, expenses: 20 }, { year: 2022, revenue: 23, expenses: 21 }, { year: 2023, revenue: 25, expenses: 22 } ] },
+    { id: '5', abn: '55888999000', name: 'Clean Up Australia', category: 'Environment', state: 'National', revenue: 8500000, expenses: 7800000, staff: 45, volunteers: 750000, website: 'https://www.cleanup.org.au', description: 'Inspiring and empowering communities to clean up, fix up and conserve our environment.', transparency_score: 91, financial_efficiency: 0.92, historical_data: [ { year: 2020, revenue: 7, expenses: 6.5 }, { year: 2021, revenue: 7.5, expenses: 7 }, { year: 2022, revenue: 8, expenses: 7.5 }, { year: 2023, revenue: 8.5, expenses: 7.8 } ] },
+    { id: '6', abn: '66123123123', name: 'SA Bushfire Appeal', category: 'Disaster Relief', state: 'SA', revenue: 12000000, expenses: 11000000, staff: 15, volunteers: 500, website: '#', description: 'Supporting communities in South Australia affected by bushfires.', transparency_score: 85, financial_efficiency: 0.91, historical_data: [ { year: 2020, revenue: 15, expenses: 14 }, { year: 2021, revenue: 10, expenses: 9 }, { year: 2022, revenue: 11, expenses: 10 }, { year: 2023, revenue: 12, expenses: 11 } ] }
+];
+
+const categories = ['All', 'Humanitarian', 'Children & Youth', 'Animal Welfare', 'Food Rescue', 'Environment', 'Disaster Relief'];
+const states = ['All', 'National', 'NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
+
+// --- CONTEXT PROVIDERS ---
+const ThemeContext = createContext();
+const ComparisonContext = createContext();
+const NavigationContext = createContext();
+
+// --- HELPER FUNCTIONS & HOOKS ---
+const formatCurrency = (value) => {
+    if (Math.abs(value) >= 1.0e+9) return `$${(Math.abs(value) / 1.0e+9).toFixed(2)}B`;
+    if (Math.abs(value) >= 1.0e+6) return `$${(Math.abs(value) / 1.0e+6).toFixed(1)}M`;
+    if (Math.abs(value) >= 1.0e+3) return `$${(Math.abs(value) / 1.0e+3).toFixed(0)}K`;
+    return `$${Math.abs(value)}`;
+};
+
+const useTheme = () => useContext(ThemeContext);
+const useComparison = () => useContext(ComparisonContext);
+const useNavigation = () => useContext(NavigationContext);
+
+// --- MAGIC UI COMPONENTS ---
+
+const Meteors = ({ number = 20 }) => (
+    <>
+        {[...Array(number)].map((_, i) => (
+            <span
+                key={i}
+                className="absolute top-1/2 left-1/2 h-0.5 w-0.5 rounded-full bg-slate-500 animate-meteor"
+                style={{
+                    top: 0,
+                    left: `${Math.floor(Math.random() * 200 - 100)}%`,
+                    animationDelay: `${Math.random() * (0.8 - 0.2) + 0.2}s`,
+                    animationDuration: `${Math.floor(Math.random() * (10 - 2) + 2)}s`,
+                }}
+            />
+        ))}
+    </>
+);
+
+const AnimatedShinyText = ({ children, className }) => (
+    <div className={`inline-flex items-center justify-center ${className}`}>
+        <p
+            style={{ animation: 'shine 4s linear infinite' }}
+            className="text-4xl md:text-6xl font-extrabold tracking-tight text-gray-900 dark:text-white bg-clip-text text-transparent bg-gradient-to-r from-gray-900/60 via-gray-900 to-gray-900/60 dark:from-white/60 dark:via-white dark:to-white/60 bg-[length:200%_100%]"
+        >
+            {children}
+        </p>
+    </div>
+);
+
+const ShimmerButton = ({ children, onClick, className, ...props }) => (
+    <button
+        onClick={onClick}
+        style={{ '--shimmer-width': '100px' }}
+        className={`relative inline-flex h-12 items-center justify-center overflow-hidden rounded-md border border-blue-700 bg-blue-600 px-8 font-medium text-neutral-50 transition-all hover:scale-105 ${className}`}
+        {...props}
+    >
+        <div className="absolute inset-0 z-0 bg-gradient-to-r from-transparent via-transparent to-white/50 animate-shimmer" />
+        <span className="relative z-10">{children}</span>
+    </button>
+);
+
+const BlurIn = ({ children, className }) => (
+    <div className={`animate-blur-in ${className}`} style={{ animationFillMode: 'forwards' }}>
+        {children}
+    </div>
+);
+
+const AnimatedNumber = ({ value, formatter = (v) => v.toLocaleString() }) => {
+    const [currentValue, setCurrentValue] = useState(0);
+    const ref = useRef();
+    const duration = 1000; // 1 second
+
+    useEffect(() => {
+        let startTimestamp = null;
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            setCurrentValue(Math.floor(progress * value));
+            if (progress < 1) {
+                ref.current = requestAnimationFrame(step);
+            }
+        };
+        ref.current = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(ref.current);
+    }, [value]);
+
+    return <span>{formatter(currentValue)}</span>;
+};
+
+// --- STANDARD UI COMPONENTS ---
+
+const Tooltip = ({ children, text }) => (
+    <div className="relative flex items-center group">
+        {children}
+        <div className="absolute bottom-full mb-2 w-max max-w-xs p-2 text-sm text-white bg-gray-800 dark:bg-gray-900 rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-50">
+            {text}
+        </div>
+    </div>
+);
+
+const Card = ({ children, className = '' }) => (
+    <div className={`bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm hover:shadow-lg transition-shadow duration-300 ${className}`}>
+        {children}
+    </div>
+);
+
+const Button = ({ children, onClick, variant = 'default', size = 'default', className = '', ...props }) => {
+    const baseClasses = 'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
+    const variants = {
+        default: 'bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 focus-visible:ring-blue-500',
+        secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-50 dark:hover:bg-gray-600 focus-visible:ring-gray-400',
+        ghost: 'hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:ring-gray-400',
+        destructive: 'bg-red-500 text-white hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 focus-visible:ring-red-500',
+        outline: 'border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:ring-gray-400',
+    };
+    const sizes = { default: 'h-10 py-2 px-4', sm: 'h-9 px-3 rounded-md', lg: 'h-11 px-8 rounded-md', icon: 'h-10 w-10' };
+    return ( <button className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${className}`} onClick={onClick} {...props}>{children}</button> );
+};
+
+const Badge = ({ children, variant = 'default', className = '' }) => {
+    const variants = {
+        default: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
+        success: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+        warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+        danger: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+    };
+    return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${variants[variant]} ${className}`}>{children}</span>;
+};
+
+const ProgressBar = ({ value, max = 100 }) => {
+    const percentage = (value / max) * 100;
+    let colorClass = percentage < 33 ? 'bg-red-500' : percentage < 66 ? 'bg-yellow-500' : 'bg-green-500';
+    return <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5"><div className={`${colorClass} h-2.5 rounded-full`} style={{ width: `${percentage}%` }}></div></div>;
+};
+
+const SkeletonLoader = ({ className = '' }) => <div className={`animate-pulse bg-gray-200 dark:bg-gray-700 rounded-md ${className}`}></div>;
+
+// --- COMPLEX COMPONENTS ---
+
+const Header = () => {
+    const { theme, toggleTheme } = useTheme();
+    const { navigate } = useNavigation();
+    const { comparisonList } = useComparison();
+    return (
+        <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
+            <div className="container mx-auto flex items-center justify-between h-16 px-4">
+                <div className="flex items-center gap-4">
+                    <a href="#" onClick={(e) => { e.preventDefault(); navigate({ page: 'landing' })}} className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white">
+                        <HelpingHand className="text-blue-600 dark:text-blue-500" /><span>CharityCompass</span>
+                    </a>
+                </div>
+                <nav className="hidden md:flex items-center gap-6">
+                    <a href="#" onClick={(e) => { e.preventDefault(); navigate({ page: 'search' })}} className="text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">Search</a>
+                    <a href="#" onClick={(e) => { e.preventDefault(); navigate({ page: 'compare' })}} className="relative text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        Compare {comparisonList.length > 0 && <span className="absolute -top-1 -right-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-xs text-white">{comparisonList.length}</span>}
+                    </a>
+                    <a href="#" onClick={(e) => { e.preventDefault(); navigate({ page: 'about' })}} className="text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">About</a>
+                </nav>
+                <div className="flex items-center gap-2">
+                    <Button onClick={toggleTheme} variant="ghost" size="icon">
+                        <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                        <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                        <span className="sr-only">Toggle theme</span>
+                    </Button>
+                </div>
+            </div>
+        </header>
+    );
+};
+
+const Footer = () => (
+    <footer className="bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+        <div className="container mx-auto py-8 px-4 text-center text-gray-600 dark:text-gray-400 text-sm">
+            <p>&copy; {new Date().getFullYear()} CharityCompass. Data sourced from ACNC (mock data for demo).</p>
+            <p className="mt-2">Built with React, TailwindCSS, and a touch of magic.</p>
+        </div>
+    </footer>
+);
+
+const SearchBar = ({ onSearchChange }) => (
+    <div className="relative w-full">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <input type="text" placeholder="Search for a charity by name or ABN..." onChange={(e) => onSearchChange(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow" />
+    </div>
+);
+
+const FilterPanel = ({ onFilterChange }) => {
+    const [openDropdown, setOpenDropdown] = useState(null);
+    const Dropdown = ({ name, options, onSelect }) => {
+        const [selected, setSelected] = useState(options[0]);
+        const isOpen = openDropdown === name;
+        const handleSelect = (option) => { setSelected(option); onSelect(name.toLowerCase(), option); setOpenDropdown(null); };
+        return (
+            <div className="relative">
+                <button onClick={() => setOpenDropdown(isOpen ? null : name)} className="w-full flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-md border border-gray-300 dark:border-gray-600">
+                    <span className="capitalize">{name}: {selected}</span><ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </button>
+                {isOpen && <div className="absolute top-full mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-10">{options.map(opt => <div key={opt} onClick={() => handleSelect(opt)} className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">{opt}</div>)}</div>}
+            </div>
+        );
+    };
+    return <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><Dropdown name="Category" options={categories} onSelect={onFilterChange} /><Dropdown name="State" options={states} onSelect={onFilterChange} /></div>;
+};
+
+const CharityCard = ({ charity }) => {
+    const { navigate } = useNavigation();
+    const { comparisonList, toggleCompare } = useComparison();
+    const isComparing = comparisonList.some(c => c.id === charity.id);
+    const surplus = charity.revenue - charity.expenses;
+    const getBadgeVariant = (score) => score > 90 ? "success" : score > 80 ? "warning" : "danger";
+    return (
+        <BlurIn>
+            <Card className="flex flex-col p-4 h-full">
+                <div className="flex-grow">
+                    <div className="flex justify-between items-start">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{charity.name}</h3>
+                        <Tooltip text={isComparing ? 'Remove from comparison' : 'Add to comparison'}>
+                            <Button onClick={() => toggleCompare(charity)} variant={isComparing ? "secondary" : "ghost"} size="icon" className="flex-shrink-0">
+                                {isComparing ? <MinusCircle className="h-5 w-5 text-red-500"/> : <PlusCircle className="h-5 w-5 text-blue-500"/>}
+                            </Button>
+                        </Tooltip>
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{charity.category} | {charity.state}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-3 h-10 overflow-hidden">{charity.description}</p>
+                </div>
+                <div className="mt-4 space-y-3">
+                    <div className="flex justify-between text-sm"><span className="text-gray-600 dark:text-gray-400">Revenue</span><span className="font-semibold text-gray-800 dark:text-gray-200">{formatCurrency(charity.revenue)}</span></div>
+                    <div className="flex justify-between text-sm"><span className="text-gray-600 dark:text-gray-400">Surplus</span><span className={`font-semibold ${surplus >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{formatCurrency(surplus)}</span></div>
+                    <div className="flex justify-between items-center text-sm"><span className="text-gray-600 dark:text-gray-400">Transparency</span><Badge variant={getBadgeVariant(charity.transparency_score)}>{charity.transparency_score}%</Badge></div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <Button onClick={() => navigate({ page: 'charityDetail', data: charity })} className="w-full">View Details</Button>
+                </div>
+            </Card>
+        </BlurIn>
+    );
+};
+
+const KPIChip = ({ title, value, tooltip, formatter }) => (
+    <Tooltip text={tooltip}>
+        <div className="bg-gray-100 dark:bg-gray-900/50 p-4 rounded-lg text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                <AnimatedNumber value={value} formatter={formatter} />
+            </p>
+        </div>
+    </Tooltip>
+);
+
+const ChartBlock = ({ data }) => (
+    <Card className="p-4 h-80">
+        <h4 className="font-bold mb-4 text-gray-800 dark:text-gray-200">Financial History (in millions)</h4>
+        <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(128, 128, 128, 0.2)" />
+                <XAxis dataKey="year" tick={{ fill: 'currentColor' }} className="text-xs" />
+                <YAxis tickFormatter={(val) => `${val}M`} tick={{ fill: 'currentColor' }} className="text-xs"/>
+                <RechartsTooltip contentStyle={{ backgroundColor: 'rgba(31, 41, 55, 0.8)', borderColor: 'rgba(107, 114, 128, 0.5)', color: '#ffffff', borderRadius: '0.5rem' }} formatter={(value) => [`$${value}M`, '']} labelStyle={{ fontWeight: 'bold' }} />
+                <Legend wrapperStyle={{paddingTop: '20px'}} />
+                <Bar dataKey="revenue" fill="#3b82f6" name="Revenue" />
+                <Bar dataKey="expenses" fill="#ef4444" name="Expenses" />
+            </BarChart>
+        </ResponsiveContainer>
+    </Card>
+);
+
+// --- PAGES ---
+
+const LandingPage = () => {
+    const { navigate } = useNavigation();
+    return (
+        <div className="flex-grow">
+            <section className="relative overflow-hidden py-20 md:py-32 bg-white dark:bg-gray-900">
+                <div className="absolute inset-0 z-0">
+                    <Meteors number={30} />
+                </div>
+                <div className="container mx-auto px-4 text-center relative z-10">
+                    <Badge variant="success" className="mb-4">Magic UI Edition</Badge>
+                    <AnimatedShinyText>Informed Giving, Simplified.</AnimatedShinyText>
+                    <BlurIn>
+                        <p className="mt-6 max-w-2xl mx-auto text-lg text-gray-600 dark:text-gray-300">
+                            Search, compare, and evaluate Australian charities with verified data. Make your donations count.
+                        </p>
+                    </BlurIn>
+                    <ShimmerButton onClick={() => navigate({ page: 'search' })} className="mt-8">
+                        <Search className="mr-2 h-5 w-5" /> Start Searching
+                    </ShimmerButton>
+                </div>
+            </section>
+            <section className="py-20 bg-gray-50 dark:bg-gray-800/50">
+                <div className="container mx-auto px-4">
+                    <div className="grid md:grid-cols-3 gap-8 text-center">
+                        <div className="p-6"><LayoutDashboard className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-500" /><h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Impact Dashboards</h3><p className="mt-2 text-gray-600 dark:text-gray-400">Visualize a charity's financial health, efficiency, and scale at a glance.</p></div>
+                        <div className="p-6"><List className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-500" /><h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Side-by-Side Comparison</h3><p className="mt-2 text-gray-600 dark:text-gray-400">Compare multiple charities on key metrics to find the best fit for your values.</p></div>
+                        <div className="p-6"><Check className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-500" /><h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Transparency Indicators</h3><p className="mt-2 text-gray-600 dark:text-gray-400">Access annual reports and see transparency scores based on public data.</p></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    );
+};
+
+const SearchPage = () => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [charities, setCharities] = useState([]);
+    const [filteredCharities, setFilteredCharities] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filters, setFilters] = useState({ category: 'All', state: 'All' });
+
+    useEffect(() => { setTimeout(() => { setCharities(mockCharities); setFilteredCharities(mockCharities); setIsLoading(false); }, 1000); }, []);
+    const handleFilterChange = useCallback((filterName, value) => { setFilters(prev => ({...prev, [filterName]: value})); }, []);
+    const handleSearchChange = useCallback((value) => { setSearchTerm(value); }, []);
+    
+    useEffect(() => {
+        let result = charities.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || c.abn.includes(searchTerm));
+        if (filters.category !== 'All') result = result.filter(c => c.category === filters.category);
+        if (filters.state !== 'All') result = result.filter(c => c.state === filters.state || c.state === 'National');
+        setFilteredCharities(result);
+    }, [searchTerm, filters, charities]);
+
+    return (
+        <div className="container mx-auto px-4 py-8 flex-grow">
+            <div className="space-y-6">
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Find a Charity</h1>
+                <div className="space-y-4"><SearchBar onSearchChange={handleSearchChange} /><FilterPanel onFilterChange={handleFilterChange} /></div>
+                {isLoading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{[...Array(6)].map((_, i) => <SkeletonLoader key={i} className="h-[420px]" />)}</div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredCharities.length > 0 ? (
+                            filteredCharities.map(charity => <CharityCard key={charity.id} charity={charity} />)
+                        ) : (
+                            <div className="md:col-span-2 lg:col-span-3 text-center py-16"><p className="text-gray-500 dark:text-gray-400">No charities found. Try adjusting your search or filters.</p></div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const CharityDetailPage = ({ charity }) => {
+    const { navigate } = useNavigation();
+    const surplus = charity.revenue - charity.expenses;
+    return (
+        <div className="container mx-auto px-4 py-8 flex-grow">
+            <Button onClick={() => navigate({ page: 'search' })} variant="ghost" className="mb-6"><ArrowLeft className="mr-2 h-4 w-4"/> Back to Search</Button>
+            <div className="space-y-8">
+                <header>
+                    <h1 className="text-4xl font-extrabold text-gray-900 dark:text-white">{charity.name}</h1>
+                    <p className="text-lg text-gray-500 dark:text-gray-400 mt-2">{charity.description}</p>
+                    <div className="mt-4 flex items-center gap-4"><Badge>{charity.category}</Badge><Badge>{charity.state}</Badge><a href={charity.website} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 dark:text-blue-500 hover:underline">Visit Website</a></div>
+                </header>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <KPIChip title="Total Revenue" value={charity.revenue} tooltip="Total income for the last financial year." formatter={formatCurrency} />
+                    <KPIChip title="Total Expenses" value={charity.expenses} tooltip="Total expenditure for the last financial year." formatter={formatCurrency} />
+                    <KPIChip title="Operating Surplus" value={surplus} tooltip="Revenue minus expenses. Indicates financial sustainability." formatter={formatCurrency} />
+                    <KPIChip title="Paid Staff" value={charity.staff} tooltip="Number of full-time equivalent employees." />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <Card className="p-6">
+                        <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Efficiency & Transparency</h3>
+                        <div className="space-y-6">
+                           <div className="space-y-2"><div className="flex justify-between items-center"><h4 className="font-semibold text-gray-700 dark:text-gray-300">Financial Efficiency</h4><Tooltip text="Percentage of revenue spent on charitable programs. Higher is better."><Info className="h-4 w-4 text-gray-400 cursor-help" /></Tooltip></div><ProgressBar value={charity.financial_efficiency * 100}/><p className="text-right font-bold text-lg text-gray-800 dark:text-gray-200">{(charity.financial_efficiency * 100).toFixed(1)}%</p></div>
+                            <div className="space-y-2"><div className="flex justify-between items-center"><h4 className="font-semibold text-gray-700 dark:text-gray-300">Transparency Score</h4><Tooltip text="Our score based on the availability and clarity of public documents."><Info className="h-4 w-4 text-gray-400 cursor-help" /></Tooltip></div><ProgressBar value={charity.transparency_score}/><p className="text-right font-bold text-lg text-gray-800 dark:text-gray-200">{charity.transparency_score}/100</p></div>
+                             <div className="pt-4 border-t border-gray-200 dark:border-gray-700"><Button variant="outline" className="w-full">Access Annual Reports & Filings</Button></div>
+                        </div>
+                    </Card>
+                    <ChartBlock data={charity.historical_data} />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ComparePage = () => {
+    const { comparisonList, clearComparison } = useComparison();
+    const { navigate } = useNavigation();
+    if (comparisonList.length === 0) {
+        return (
+            <div className="container mx-auto px-4 py-16 text-center flex-grow">
+                <h1 className="text-2xl font-bold">Comparison List is Empty</h1>
+                <p className="text-gray-600 dark:text-gray-400 mt-2">Go to the search page to add charities to compare.</p>
+                <Button onClick={() => navigate({ page: 'search' })} className="mt-6"><Search className="mr-2 h-4 w-4" /> Go to Search</Button>
+            </div>
+        );
+    }
+    const metrics = [
+        { key: 'category', label: 'Category' }, { key: 'state', label: 'State' }, { key: 'revenue', label: 'Revenue', format: formatCurrency }, { key: 'expenses', label: 'Expenses', format: formatCurrency }, { key: 'surplus', label: 'Surplus', format: (v) => formatCurrency(v.revenue-v.expenses) }, { key: 'staff', label: 'Paid Staff', format: (v) => v.toLocaleString() }, { key: 'volunteers', label: 'Volunteers', format: (v) => v.toLocaleString() }, { key: 'financial_efficiency', label: 'Financial Efficiency', format: (v) => `${(v * 100).toFixed(1)}%` }, { key: 'transparency_score', label: 'Transparency Score', format: (v) => `${v}/100` },
+    ];
+    return (
+        <div className="container mx-auto px-4 py-8 flex-grow">
+            <div className="flex justify-between items-center mb-6"><h1 className="text-3xl font-bold">Compare Charities</h1><Button onClick={clearComparison} variant="destructive">Clear All</Button></div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[800px] border-collapse text-left">
+                <thead><tr className="border-b border-gray-200 dark:border-gray-700"><th className="py-4 px-2 font-semibold text-gray-700 dark:text-gray-300 w-1/4">Metric</th>{comparisonList.map(charity => <th key={charity.id} className="py-4 px-2 font-semibold text-gray-900 dark:text-white">{charity.name}</th>)}</tr></thead>
+                <tbody>{metrics.map(metric => <tr key={metric.key} className="border-b border-gray-200 dark:border-gray-700"><td className="py-4 px-2 font-medium text-gray-600 dark:text-gray-400">{metric.label}</td>{comparisonList.map(charity => <td key={`${charity.id}-${metric.key}`} className="py-4 px-2 text-gray-800 dark:text-gray-200">{metric.format ? metric.format(metric.key === 'surplus' ? charity : charity[metric.key]) : charity[metric.key]}</td>)}</tr>)}</tbody>
+            </table></div>
+        </div>
+    );
+};
+
+const AboutPage = () => (
+    <div className="container mx-auto px-4 py-12 flex-grow">
+        <div className="max-w-3xl mx-auto"><h1 className="text-4xl font-extrabold text-gray-900 dark:text-white">About CharityCompass</h1><p className="mt-4 text-lg text-gray-600 dark:text-gray-300">Our mission is to empower donors, researchers, and policymakers with clear, accessible, and reliable data on Australian charities. We believe that transparency fosters trust and enables more effective philanthropy.</p><div className="mt-12 space-y-8"><div><h2 className="text-2xl font-bold text-gray-900 dark:text-white">Our Data</h2><p className="mt-2 text-gray-700 dark:text-gray-400">This demonstration uses mock data for illustrative purposes. A full-scale version of CharityCompass would connect directly to the Australian Charities and Not-for-profits Commission (ACNC) API, ensuring the data is always up-to-date and verified. We process and present this data to make it easy to understand and compare.</p></div><div><h2 className="text-2xl font-bold text-gray-900 dark:text-white">Key Features Explained</h2><ul className="mt-2 list-disc list-inside space-y-2 text-gray-700 dark:text-gray-400"><li><strong>Advanced Search:</strong> Quickly find charities by name, ABN, category, or state of operation.</li><li><strong>Impact Dashboards:</strong> Get a comprehensive overview of a charity's financial performance, including revenue, expenses, and efficiency ratios.</li><li><strong>Side-by-Side Comparison:</strong> Evaluate charities based on consistent metrics to make informed decisions.</li><li><strong>Transparency Indicators:</strong> We provide scores based on the completeness of public filings to help you gauge a charity's commitment to openness.</li></ul></div><div><h2 className="text-2xl font-bold text-gray-900 dark:text-white">Future Goals</h2><p className="mt-2 text-gray-700 dark:text-gray-400">We aim to expand our features to include user profiles for saving comparisons, API access for researchers, and detailed analysis of specific charitable programs.</p></div></div></div>
+    </div>
+);
+
+
+// --- PROVIDER COMPONENTS ---
+const ThemeProvider = ({ children }) => {
+    const [theme, setTheme] = useState('light');
+    useEffect(() => { const root = window.document.documentElement; root.classList.remove('light', 'dark'); root.classList.add(theme); }, [theme]);
+    const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
+    return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
+};
+const ComparisonProvider = ({ children }) => {
+    const [comparisonList, setComparisonList] = useState([]);
+    const toggleCompare = (charity) => setComparisonList(prev => prev.some(c => c.id === charity.id) ? prev.filter(c => c.id !== charity.id) : [...prev, charity]);
+    const clearComparison = () => setComparisonList([]);
+    return <ComparisonContext.Provider value={{ comparisonList, toggleCompare, clearComparison }}>{children}</ComparisonContext.Provider>;
+};
+const NavigationProvider = ({ children }) => {
+    const [route, setRoute] = useState({ page: 'landing', data: null });
+    const navigate = useCallback((newRoute) => { setRoute(newRoute); window.scrollTo(0, 0); }, []);
+    return <NavigationContext.Provider value={{ route, navigate }}>{children}</NavigationContext.Provider>;
+}
+
+// --- MAIN APP COMPONENT ---
+export default function App() {
+    return (
+        <ThemeProvider>
+            <style>{मैजिकUICSS}</style>
+            <ComparisonProvider>
+                <NavigationProvider>
+                    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col"><AppContent /></div>
+                </NavigationProvider>
+            </ComparisonProvider>
+        </ThemeProvider>
+    );
+}
+
+const AppContent = () => {
+    const { route } = useNavigation();
+    const renderPage = () => {
+        switch (route.page) {
+            case 'landing': return <LandingPage />;
+            case 'search': return <SearchPage />;
+            case 'charityDetail': return <CharityDetailPage charity={route.data} />;
+            case 'compare': return <ComparePage />;
+            case 'about': return <AboutPage />;
+            default: return <LandingPage />;
+        }
+    };
+    return <><Header /><main className="flex-grow">{renderPage()}</main><Footer /></>;
+}

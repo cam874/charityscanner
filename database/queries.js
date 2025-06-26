@@ -133,12 +133,12 @@ class ACNCDatabase {
             } = options;
             
             let query = `
-                SELECT DISTINCT c.abn, c.charity_name, c.charity_size, c.charity_website,
-                    ar.report_year, fd.total_revenue, fd.total_assets, fd.net_surplus_deficit
+                SELECT DISTINCT c.ABN as abn, c.Name as charity_name, c.CharitySize as charity_size, c.Website as charity_website,
+                    ar.Year as report_year, ar.Revenue as total_revenue, ar.Expenses as total_expenses, ar.Assets as total_assets, 
+                    (ar.Revenue - ar.Expenses) as net_surplus_deficit
                 FROM charities c
-                LEFT JOIN ais_reports ar ON c.abn = ar.abn
-                LEFT JOIN financial_data fd ON ar.id = fd.ais_report_id
-                WHERE 1=1
+                LEFT JOIN annual_reports ar ON c.ABN = ar.ABN
+                WHERE ar.Revenue IS NOT NULL
             `;
             
             const params = [];
@@ -176,9 +176,9 @@ class ACNCDatabase {
         console.log('Using mock searchCharities with options:', options);
         const { search = '' } = options;
         const mockData = [
-            { abn: '37008882233', charity_name: 'Australian Red Cross', charity_size: 'Large', charity_website: 'https://www.redcross.org.au', report_year: 2023, total_revenue: 325000000, total_assets: 450000000, net_surplus_deficit: 5000000 },
-            { abn: '64001444939', charity_name: 'The Salvation Army', charity_size: 'Large', charity_website: 'https://www.salvationarmy.org.au', report_year: 2023, total_revenue: 290000000, total_assets: 500000000, net_surplus_deficit: 5000000 },
-            { abn: '26054135512', charity_name: 'Médecins Sans Frontières Australia', charity_size: 'Large', charity_website: 'https://msf.org.au', report_year: 2023, total_revenue: 110000000, total_assets: 120000000, net_surplus_deficit: 5000000 }
+            { abn: '37008882233', charity_name: 'Australian Red Cross', charity_size: 'Large', charity_website: 'https://www.redcross.org.au', report_year: 2023, total_revenue: 325000000, total_expenses: 320000000, total_assets: 450000000, net_surplus_deficit: 5000000 },
+            { abn: '64001444939', charity_name: 'The Salvation Army', charity_size: 'Large', charity_website: 'https://www.salvationarmy.org.au', report_year: 2023, total_revenue: 290000000, total_expenses: 285000000, total_assets: 500000000, net_surplus_deficit: 5000000 },
+            { abn: '26054135512', charity_name: 'Médecins Sans Frontières Australia', charity_size: 'Large', charity_website: 'https://msf.org.au', report_year: 2023, total_revenue: 110000000, total_expenses: 105000000, total_assets: 120000000, net_surplus_deficit: 5000000 }
         ];
         
         if (!search) return mockData;

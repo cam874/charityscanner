@@ -1,0 +1,1332 @@
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Search, Moon, Sun, X, Check, ChevronsUpDown, Info, ArrowLeft, PlusCircle, MinusCircle, LayoutDashboard, List, HelpingHand, DollarSign, TrendingDown, TrendingUp, PieChart, BarChart3, Target, Shield, FileText, Calendar, Users, Globe, Award, Briefcase, BookOpen, Download, ExternalLink, AlertTriangle, CheckCircle, Clock, MapPin, Phone, Mail } from 'lucide-react';
+import CharityAPI from './services/api';
+import './index.css';
+
+// --- MAGIC UI & ANIMATION STYLES ---
+const मैजिकUICSS = `
+@keyframes meteor {
+    0% { transform: rotate(215deg) translateX(0); opacity: 1; }
+    70% { opacity: 1; }
+    100% { transform: rotate(215deg) translateX(-500px); opacity: 0; }
+}
+@keyframes shimmer {
+    0%, 90%, 100% {
+      background-position: calc(-100% - var(--shimmer-width)) 0;
+    }
+    30%, 60% {
+      background-position: calc(100% + var(--shimmer-width)) 0;
+    }
+}
+@keyframes shine {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes blur-in {
+    0% { filter: blur(10px); opacity: 0; }
+    100% { filter: blur(0px); opacity: 1; }
+}
+`;
+
+// --- MOCK DATA ---
+const mockCharities = [
+    { id: '1', abn: '11123456789', name: 'Australian Red Cross', category: 'Humanitarian', state: 'National', revenue: 1050000000, expenses: 980000000, staff: 3200, volunteers: 35000, website: 'https://www.redcross.org.au', description: 'Providing relief in times of crisis and care when its needed most.', transparency_score: 95, financial_efficiency: 0.93, historical_data: [ { year: 2020, revenue: 950, expenses: 880 }, { year: 2021, revenue: 1000, expenses: 920 }, { year: 2022, revenue: 1020, expenses: 950 }, { year: 2023, revenue: 1050, expenses: 980 } ] },
+    { id: '2', abn: '22987654321', name: 'The Smith Family', category: 'Children & Youth', state: 'National', revenue: 145000000, expenses: 125000000, staff: 850, volunteers: 8000, website: 'https://www.thesmithfamily.com.au', description: 'A national charity helping young Australians from disadvantaged backgrounds succeed at school.', transparency_score: 92, financial_efficiency: 0.86, historical_data: [ { year: 2020, revenue: 130, expenses: 110 }, { year: 2021, revenue: 135, expenses: 115 }, { year: 2022, revenue: 140, expenses: 120 }, { year: 2023, revenue: 145, expenses: 125 } ] },
+    { id: '3', abn: '33111222333', name: 'RSPCA Australia', category: 'Animal Welfare', state: 'National', revenue: 175000000, expenses: 168000000, staff: 1200, volunteers: 5000, website: 'https://www.rspca.org.au', description: 'Australia\'s leading animal welfare organisation and one of Australia\'s most trusted charities.', transparency_score: 88, financial_efficiency: 0.96, historical_data: [ { year: 2020, revenue: 160, expenses: 155 }, { year: 2021, revenue: 165, expenses: 160 }, { year: 2022, revenue: 170, expenses: 165 }, { year: 2023, revenue: 175, expenses: 168 } ] },
+    { id: '4', abn: '44555666777', name: 'OzHarvest', category: 'Food Rescue', state: 'National', revenue: 25000000, expenses: 22000000, staff: 200, volunteers: 2500, website: 'https://www.ozharvest.org', description: 'Rescuing surplus food to feed people in need across Australia.', transparency_score: 98, financial_efficiency: 0.88, historical_data: [ { year: 2020, revenue: 20, expenses: 18 }, { year: 2021, revenue: 22, expenses: 20 }, { year: 2022, revenue: 23, expenses: 21 }, { year: 2023, revenue: 25, expenses: 22 } ] },
+    { id: '5', abn: '55888999000', name: 'Clean Up Australia', category: 'Environment', state: 'National', revenue: 8500000, expenses: 7800000, staff: 45, volunteers: 750000, website: 'https://www.cleanup.org.au', description: 'Inspiring and empowering communities to clean up, fix up and conserve our environment.', transparency_score: 91, financial_efficiency: 0.92, historical_data: [ { year: 2020, revenue: 7, expenses: 6.5 }, { year: 2021, revenue: 7.5, expenses: 7 }, { year: 2022, revenue: 8, expenses: 7.5 }, { year: 2023, revenue: 8.5, expenses: 7.8 } ] },
+    { id: '6', abn: '66123123123', name: 'SA Bushfire Appeal', category: 'Disaster Relief', state: 'SA', revenue: 12000000, expenses: 11000000, staff: 15, volunteers: 500, website: '#', description: 'Supporting communities in South Australia affected by bushfires.', transparency_score: 85, financial_efficiency: 0.91, historical_data: [ { year: 2020, revenue: 15, expenses: 14 }, { year: 2021, revenue: 10, expenses: 9 }, { year: 2022, revenue: 11, expenses: 10 }, { year: 2023, revenue: 12, expenses: 11 } ] }
+];
+
+const categories = ['All', 'Large', 'Medium', 'Small', 'Humanitarian', 'Children & Youth', 'Animal Welfare', 'Food Rescue', 'Environment', 'Disaster Relief'];
+const states = ['All', 'National', 'NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
+
+// --- CONTEXT PROVIDERS ---
+const ThemeContext = createContext();
+const ComparisonContext = createContext();
+const NavigationContext = createContext();
+
+// --- HELPER FUNCTIONS & HOOKS ---
+const formatCurrency = (value) => {
+    if (Math.abs(value) >= 1.0e+9) return `$${(Math.abs(value) / 1.0e+9).toFixed(2)}B`;
+    if (Math.abs(value) >= 1.0e+6) return `$${(Math.abs(value) / 1.0e+6).toFixed(1)}M`;
+    if (Math.abs(value) >= 1.0e+3) return `$${(Math.abs(value) / 1.0e+3).toFixed(0)}K`;
+    return `$${Math.abs(value)}`;
+};
+
+const formatNumber = (value) => {
+    return new Intl.NumberFormat('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+};
+
+const useTheme = () => useContext(ThemeContext);
+const useComparison = () => useContext(ComparisonContext);
+const useNavigation = () => useContext(NavigationContext);
+
+// --- PROVIDER COMPONENTS ---
+const ThemeProvider = ({ children }) => {
+    const [theme, setTheme] = useState('light');
+    useEffect(() => { const root = window.document.documentElement; root.classList.remove('light', 'dark'); root.classList.add(theme); }, [theme]);
+    const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
+    return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
+};
+const ComparisonProvider = ({ children }) => {
+    const [comparisonList, setComparisonList] = useState([]);
+    const toggleCompare = (charity) => setComparisonList(prev => prev.some(c => c.id === charity.id) ? prev.filter(c => c.id !== charity.id) : [...prev, charity]);
+    const clearComparison = () => setComparisonList([]);
+    return <ComparisonContext.Provider value={{ comparisonList, toggleCompare, clearComparison }}>{children}</ComparisonContext.Provider>;
+};
+const NavigationProvider = ({ children }) => {
+    const [route, setRoute] = useState({ page: 'landing', data: null });
+    const navigate = useCallback((newRoute) => { setRoute(newRoute); window.scrollTo(0, 0); }, []);
+    return <NavigationContext.Provider value={{ route, navigate }}>{children}</NavigationContext.Provider>;
+}
+
+// --- MAIN APP COMPONENT ---
+export default function App() {
+    return (
+        <ThemeProvider>
+            <style>{मैजिकUICSS}</style>
+            <ComparisonProvider>
+                <NavigationProvider>
+                    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col"><AppContent /></div>
+                </NavigationProvider>
+            </ComparisonProvider>
+        </ThemeProvider>
+    );
+}
+
+const AppContent = () => {
+    const { route } = useNavigation();
+    const renderPage = () => {
+        switch (route.page) {
+            case 'landing': return <LandingPage />;
+            case 'search': return <SearchPage />;
+            case 'charityDetail': return <CharityDetailPage charity={route.data} />;
+            case 'compare': return <ComparePage />;
+            case 'about': return <AboutPage />;
+            default: return <LandingPage />;
+        }
+    };
+    return <><Header /><main className="flex-grow">{renderPage()}</main><Footer /></>;
+}
+
+// --- STANDARD UI COMPONENTS ---
+const Button = ({ children, onClick, variant = 'default', size = 'default', className = '', ...props }) => {
+    const baseClasses = 'inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none';
+    const variants = {
+        default: 'bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 focus-visible:ring-blue-500',
+        secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-50 dark:hover:bg-gray-600 focus-visible:ring-gray-400',
+        ghost: 'hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:ring-gray-400',
+        destructive: 'bg-red-500 text-white hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 focus-visible:ring-red-500',
+        outline: 'border border-gray-300 dark:border-gray-600 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:ring-gray-400',
+    };
+    const sizes = { default: 'h-10 py-2 px-4', sm: 'h-9 px-3 rounded-md', lg: 'h-11 px-8 rounded-md', icon: 'h-10 w-10' };
+    return ( <button className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${className}`} onClick={onClick} {...props}>{children}</button> );
+};
+
+// --- ICONS (from lucide-react) ---
+// Already imported: Search, Moon, Sun, X, Check, ChevronsUpDown, Info, ArrowLeft, PlusCircle, MinusCircle, LayoutDashboard, List, HelpingHand
+// No need to redefine, just use as imported.
+
+// --- PAGE COMPONENTS ---
+const LandingPage = () => {
+    const { navigate } = useNavigation();
+    return (
+        <div className="flex-grow">
+            <section className="relative overflow-hidden py-20 md:py-32 bg-white dark:bg-gray-900">
+                <div className="absolute inset-0 z-0">
+                    <Meteors number={30} />
+                </div>
+                <div className="container mx-auto px-4 text-center relative z-10">
+                    <Badge variant="success" className="mb-4">Magic UI Edition</Badge>
+                    <AnimatedShinyText>Informed Giving, Simplified.</AnimatedShinyText>
+                    <BlurIn>
+                        <p className="mt-6 max-w-2xl mx-auto text-lg text-gray-600 dark:text-gray-300">
+                            Search, compare, and evaluate Australian charities with verified data. Make your donations count.
+                        </p>
+                    </BlurIn>
+                    <ShimmerButton onClick={() => navigate({ page: 'search' })} className="mt-8">
+                        <Search className="mr-2 h-5 w-5" /> Start Searching
+                    </ShimmerButton>
+                </div>
+            </section>
+            <section className="py-20 bg-gray-50 dark:bg-gray-800/50">
+                <div className="container mx-auto px-4">
+                    <div className="grid md:grid-cols-3 gap-8 text-center">
+                        <div className="p-6"><LayoutDashboard className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-500" /><h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Impact Dashboards</h3><p className="mt-2 text-gray-600 dark:text-gray-400">Visualize a charity's financial health, efficiency, and scale at a glance.</p></div>
+                        <div className="p-6"><List className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-500" /><h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Side-by-Side Comparison</h3><p className="mt-2 text-gray-600 dark:text-gray-400">Compare multiple charities on key metrics to find the best fit for your values.</p></div>
+                        <div className="p-6"><Check className="mx-auto h-12 w-12 text-blue-600 dark:text-blue-500" /><h3 className="mt-4 text-xl font-bold text-gray-900 dark:text-white">Transparency Indicators</h3><p className="mt-2 text-gray-600 dark:text-gray-400">Access annual reports and see transparency scores based on public data.</p></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    );
+};
+
+const SearchPage = () => {
+    const [isLoading, setIsLoading] = useState(false);
+    const [charities, setCharities] = useState([]);
+    const [filteredCharities, setFilteredCharities] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filters, setFilters] = useState({ category: 'All', state: 'All' });
+    const [error, setError] = useState(null);
+    const [hasSearched, setHasSearched] = useState(false);
+
+    // Search function that uses the API
+    const performSearch = async (term) => {
+        if (!term.trim()) {
+            setError('Please enter a search term');
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setHasSearched(true);
+        
+        try {
+            const charityData = await CharityAPI.searchCharities(term);
+            setCharities(charityData);
+            setFilteredCharities(charityData);
+        } catch (error) {
+            console.error('Failed to search charities:', error);
+            setError('Failed to search charities. Please try again.');
+            setCharities([]);
+            setFilteredCharities([]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleFilterChange = useCallback((filterName, value) => { 
+        setFilters(prev => ({...prev, [filterName]: value})); 
+    }, []);
+    
+    const handleSearchChange = useCallback((value) => { 
+        setSearchTerm(value); 
+    }, []);
+
+    const handleSearchSubmit = useCallback(() => {
+        performSearch(searchTerm);
+    }, [searchTerm]);
+    
+    useEffect(() => {
+        let result = charities.filter(c => 
+            c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+            c.abn.includes(searchTerm)
+        );
+        if (filters.category !== 'All') result = result.filter(c => c.category === filters.category);
+        if (filters.state !== 'All') result = result.filter(c => c.state === filters.state || c.state === 'National');
+        setFilteredCharities(result);
+    }, [searchTerm, filters, charities]);
+
+    return (
+        <div className="container mx-auto px-4 py-8 flex-grow">
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Find a Charity</h1>
+                </div>
+                
+                {error && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
+                        {error}
+                    </div>
+                )}
+                
+                <div className="space-y-4">
+                    <SearchBar 
+                        onSearchChange={handleSearchChange} 
+                        onSearchSubmit={handleSearchSubmit}
+                        placeholder="Search for a charity (e.g., 'Red Cross', 'Cancer', 'Community')"
+                    />
+                    <FilterPanel onFilterChange={handleFilterChange} />
+                </div>
+                
+                {isLoading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {[...Array(6)].map((_, i) => <SkeletonLoader key={i} className="h-[420px]" />)}
+                    </div>
+                ) : hasSearched ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredCharities.length > 0 ? (
+                            filteredCharities.map(charity => <CharityCard key={charity.id} charity={charity} />)
+                        ) : (
+                            <div className="md:col-span-2 lg:col-span-3 text-center py-16">
+                                <p className="text-gray-500 dark:text-gray-400">
+                                    No charities found. Try adjusting your search or filters.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="text-center py-16">
+                        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-4">
+                            Search for Australian Charities
+                        </h2>
+                        <p className="text-gray-500 dark:text-gray-400 mb-6">
+                            Enter a charity name, cause, or location to get started
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
+                            <button 
+                                onClick={() => { setSearchTerm('Cancer'); performSearch('Cancer'); }}
+                                className="p-4 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+                            >
+                                <h3 className="font-semibold text-blue-900">Health & Medical</h3>
+                                <p className="text-sm text-blue-700">Cancer, medical research, hospitals</p>
+                            </button>
+                            <button 
+                                onClick={() => { setSearchTerm('Community'); performSearch('Community'); }}
+                                className="p-4 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-colors"
+                            >
+                                <h3 className="font-semibold text-green-900">Community</h3>
+                                <p className="text-sm text-green-700">Local communities, support services</p>
+                            </button>
+                            <button 
+                                onClick={() => { setSearchTerm('Environment'); performSearch('Environment'); }}
+                                className="p-4 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors"
+                            >
+                                <h3 className="font-semibold text-emerald-900">Environment</h3>
+                                <p className="text-sm text-emerald-700">Conservation, sustainability</p>
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const CharityDetailPage = ({ charity }) => {
+    const { navigate } = useNavigation();
+    const { toggleCompare, comparisonList } = useComparison();
+    const [charityDetails, setCharityDetails] = useState(charity || null);
+    const [historicalData, setHistoricalData] = useState([]);
+    const [isLoading, setIsLoading] = useState(!charity);
+    const [error, setError] = useState(null);
+    const [activeTab, setActiveTab] = useState('overview');
+
+    const isInComparison = comparisonList.some(c => c.id === charityDetails?.id);
+
+    useEffect(() => {
+        const fetchDetails = async () => {
+            if (charity?.abn) {
+                setIsLoading(true);
+                setError(null);
+                
+                try {
+                    // Fetch detailed charity information
+                    const details = await CharityAPI.fetchCharityDetails(charity.abn);
+                    if (details) {
+                        setCharityDetails(details);
+                    }
+                    
+                    // Fetch historical data for charts
+                    const history = await CharityAPI.fetchCharityHistory(charity.abn);
+                    setHistoricalData(history);
+                } catch (error) {
+                    console.error('Failed to fetch charity details:', error);
+                    setError('Failed to load charity details. Please try again.');
+                } finally {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        fetchDetails();
+    }, [charity?.abn]);
+
+    if (isLoading) {
+        return (
+            <div className="container mx-auto px-4 py-8 flex-grow">
+                <Button onClick={() => navigate({ page: 'search' })} variant="ghost" className="mb-6">
+                    <ArrowLeft className="mr-2 h-4 w-4"/> Back to Search
+                </Button>
+                <div className="space-y-6">
+                    <SkeletonLoader className="h-12 w-96" />
+                    <SkeletonLoader className="h-64" />
+                    <SkeletonLoader className="h-64" />
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="container mx-auto px-4 py-8 flex-grow">
+                <Button onClick={() => navigate({ page: 'search' })} variant="ghost" className="mb-6">
+                    <ArrowLeft className="mr-2 h-4 w-4"/> Back to Search
+                </Button>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
+                    <h2 className="text-xl font-semibold mb-2">Error Loading Charity Details</h2>
+                    <p>{error}</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!charityDetails) {
+        return (
+            <div className="container mx-auto px-4 py-8 flex-grow">
+                <Button onClick={() => navigate({ page: 'search' })} variant="ghost" className="mb-6">
+                    <ArrowLeft className="mr-2 h-4 w-4"/> Back to Search
+                </Button>
+                <div className="text-center py-16">
+                    <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300">Charity Not Found</h2>
+                    <p className="text-gray-500 dark:text-gray-400 mt-2">The requested charity could not be found.</p>
+                </div>
+            </div>
+        );
+    }
+
+    const surplus = charityDetails.revenue - charityDetails.expenses;
+    const efficiencyRatio = charityDetails.revenue > 0 ? (charityDetails.expenses / charityDetails.revenue) * 100 : 0;
+    const programRatio = charityDetails.revenue > 0 ? ((charityDetails.expenses - (charityDetails.expenses * 0.15)) / charityDetails.expenses) * 100 : 0;
+
+    return (
+        <div className="container mx-auto px-4 py-8 flex-grow">
+            {/* Header with Navigation */}
+            <div className="flex items-center justify-between mb-6">
+                <Button onClick={() => navigate({ page: 'search' })} variant="ghost">
+                    <ArrowLeft className="mr-2 h-4 w-4"/> Back to Search
+                </Button>
+                <Button 
+                    onClick={() => toggleCompare(charityDetails)} 
+                    variant={isInComparison ? "secondary" : "default"}
+                    className="flex items-center gap-2"
+                >
+                    {isInComparison ? <MinusCircle className="h-4 w-4" /> : <PlusCircle className="h-4 w-4" />}
+                    {isInComparison ? 'Remove from Compare' : 'Add to Compare'}
+                </Button>
+            </div>
+            
+            <div className="space-y-8">
+                {/* Hero Section */}
+                <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg shadow-lg p-8 text-white">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between">
+                        <div className="flex-1">
+                            <h1 className="text-4xl font-extrabold mb-2">{charityDetails.name}</h1>
+                            <p className="text-blue-100 mb-4">{charityDetails.category} • {charityDetails.state}</p>
+                            <div className="flex items-center gap-4">
+                                <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                                    ABN: {charityDetails.abn}
+                                </Badge>
+                                <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                                    {charityDetails.status || 'Active'}
+                                </Badge>
+                            </div>
+                        </div>
+                        <div className="mt-6 lg:mt-0 lg:ml-8">
+                            <div className="text-right">
+                                <div className="text-3xl font-bold">{Math.round(charityDetails.transparency_score)}%</div>
+                                <div className="text-blue-100">Transparency Score</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Key Metrics Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <MetricCard 
+                        title="Total Revenue" 
+                        value={formatCurrency(charityDetails.revenue)} 
+                        icon={DollarSign}
+                        color="blue"
+                        trend={historicalData.length > 1 ? ((charityDetails.revenue - historicalData[historicalData.length - 2]?.revenue) / historicalData[historicalData.length - 2]?.revenue * 100) : null}
+                    />
+                    <MetricCard 
+                        title="Total Expenses" 
+                        value={formatCurrency(charityDetails.expenses)} 
+                        icon={TrendingDown}
+                        color="red"
+                        trend={historicalData.length > 1 ? ((charityDetails.expenses - historicalData[historicalData.length - 2]?.expenses) / historicalData[historicalData.length - 2]?.expenses * 100) : null}
+                    />
+                    <MetricCard 
+                        title="Net Surplus" 
+                        value={formatCurrency(surplus)} 
+                        icon={surplus >= 0 ? TrendingUp : TrendingDown}
+                        color={surplus >= 0 ? "green" : "red"}
+                        subtitle={surplus >= 0 ? "Positive surplus" : "Operating deficit"}
+                    />
+                    <MetricCard 
+                        title="Efficiency Ratio" 
+                        value={`${efficiencyRatio.toFixed(1)}%`} 
+                        icon={PieChart}
+                        color="purple"
+                        subtitle="Expenses vs Revenue"
+                    />
+                </div>
+
+                {/* Tab Navigation */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                    <div className="border-b border-gray-200 dark:border-gray-700">
+                        <nav className="flex space-x-8 px-6">
+                            {[
+                                { id: 'overview', label: 'Overview', icon: BarChart3 },
+                                { id: 'financials', label: 'Financial Analysis', icon: DollarSign },
+                                { id: 'programs', label: 'Programs & Impact', icon: Target },
+                                { id: 'governance', label: 'Governance', icon: Shield },
+                                { id: 'reports', label: 'Reports & Documents', icon: FileText }
+                            ].map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+                                        activeTab === tab.id
+                                            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                                            : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300'
+                                    }`}
+                                >
+                                    <tab.icon className="h-4 w-4" />
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+
+                    {/* Tab Content */}
+                    <div className="p-6">
+                        {activeTab === 'overview' && (
+                            <CharityOverviewTab charityDetails={charityDetails} historicalData={historicalData} />
+                        )}
+                        {activeTab === 'financials' && (
+                            <CharityFinancialsTab charityDetails={charityDetails} historicalData={historicalData} />
+                        )}
+                        {activeTab === 'programs' && (
+                            <CharityProgramsTab charityDetails={charityDetails} />
+                        )}
+                        {activeTab === 'governance' && (
+                            <CharityGovernanceTab charityDetails={charityDetails} />
+                        )}
+                        {activeTab === 'reports' && (
+                            <CharityReportsTab charityDetails={charityDetails} />
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ComparePage = () => {
+    const { navigate } = useNavigation();
+    return (
+        <div className="container mx-auto px-4 py-16 text-center flex-grow">
+            <h1 className="text-2xl font-bold">Comparison List is Empty</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">Go to the search page to add charities to compare.</p>
+            <Button onClick={() => navigate({ page: 'search' })} className="mt-6">
+                <Search className="mr-2 h-4 w-4" /> Go to Search
+            </Button>
+        </div>
+    );
+};
+
+const AboutPage = () => (
+    <div className="container mx-auto px-4 py-12 flex-grow">
+        <div className="max-w-3xl mx-auto">
+            <h1 className="text-4xl font-extrabold text-gray-900 dark:text-white">About CharityCompass</h1>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-300">
+                Our mission is to empower donors, researchers, and policymakers with clear, accessible, and reliable data on Australian charities.
+            </p>
+        </div>
+    </div>
+);
+
+// --- METRIC AND DASHBOARD COMPONENTS ---
+const MetricCard = ({ title, value, icon: Icon, color, subtitle, trend }) => {
+    const colorClasses = {
+        blue: 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800',
+        red: 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800',
+        green: 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800',
+        purple: 'bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800'
+    };
+
+    const iconColorClasses = {
+        blue: 'text-blue-600 dark:text-blue-400',
+        red: 'text-red-600 dark:text-red-400',
+        green: 'text-green-600 dark:text-green-400',
+        purple: 'text-purple-600 dark:text-purple-400'
+    };
+
+    return (
+        <Card className={`p-6 ${colorClasses[color] || colorClasses.blue}`}>
+            <div className="flex items-center justify-between">
+                <div className="flex-1">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">{title}</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{value}</p>
+                    {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
+                    {trend !== null && trend !== undefined && (
+                        <div className={`flex items-center mt-2 text-xs ${trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {trend >= 0 ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
+                            {Math.abs(trend).toFixed(1)}% vs last year
+                        </div>
+                    )}
+                </div>
+                <Icon className={`h-8 w-8 ${iconColorClasses[color] || iconColorClasses.blue}`} />
+            </div>
+        </Card>
+    );
+};
+
+// --- CHARITY DASHBOARD TAB COMPONENTS ---
+const CharityOverviewTab = ({ charityDetails, historicalData }) => {
+    const surplus = charityDetails.revenue - charityDetails.expenses;
+    const efficiencyRatio = charityDetails.revenue > 0 ? (charityDetails.expenses / charityDetails.revenue) * 100 : 0;
+    
+    return (
+        <div className="space-y-8">
+            {/* Description and Basic Info */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">About This Charity</h3>
+                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-6">
+                        {charityDetails.description || 'This charity is committed to making a positive impact in the Australian community through their dedicated programs and services.'}
+                    </p>
+                    
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                            <Globe className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {charityDetails.website ? (
+                                    <a href={charityDetails.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                        Visit Website
+                                    </a>
+                                ) : 'Website not available'}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <MapPin className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm text-gray-600 dark:text-gray-400">Operating in {charityDetails.state}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <Calendar className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {charityDetails.dateEstablished ? `Established ${charityDetails.dateEstablished}` : 'Established date not available'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Quick Stats</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <div className="text-2xl font-bold text-gray-900 dark:text-white">{charityDetails.staff || 'N/A'}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">Staff Members</div>
+                        </div>
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <div className="text-2xl font-bold text-gray-900 dark:text-white">{formatNumber(charityDetails.volunteers || 0)}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">Volunteers</div>
+                        </div>
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <div className="text-2xl font-bold text-green-600 dark:text-green-400">{Math.round(charityDetails.financial_efficiency * 100 || efficiencyRatio)}%</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">Financial Efficiency</div>
+                        </div>
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{Math.round(charityDetails.transparency_score || 85)}%</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">Transparency</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Financial Trend Chart */}
+            {historicalData && historicalData.length > 0 && (
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Financial Trends</h3>
+                    <Card className="p-6">
+                        <ResponsiveContainer width="100%" height={300}>
+                            <BarChart data={historicalData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="year" />
+                                <YAxis />
+                                <RechartsTooltip 
+                                    formatter={(value, name) => [formatCurrency(value * 1000000), name]}
+                                    labelStyle={{ color: '#374151' }}
+                                />
+                                <Legend />
+                                <Bar dataKey="revenue" fill="#3B82F6" name="Revenue (M)" />
+                                <Bar dataKey="expenses" fill="#EF4444" name="Expenses (M)" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </Card>
+                </div>
+            )}
+
+            {/* Recent Activity/News */}
+            <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h3>
+                <div className="space-y-4">
+                    <Card className="p-4">
+                        <div className="flex items-start gap-3">
+                            <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
+                            <div>
+                                <p className="font-medium text-gray-900 dark:text-white">Annual Report Published</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">Latest financial statements and impact report now available</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">2 weeks ago</p>
+                            </div>
+                        </div>
+                    </Card>
+                    <Card className="p-4">
+                        <div className="flex items-start gap-3">
+                            <Award className="h-5 w-5 text-blue-500 mt-0.5" />
+                            <div>
+                                <p className="font-medium text-gray-900 dark:text-white">Compliance Status Updated</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">All regulatory requirements met for this reporting period</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">1 month ago</p>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const CharityFinancialsTab = ({ charityDetails, historicalData }) => {
+    const surplus = charityDetails.revenue - charityDetails.expenses;
+    const programSpendingRatio = charityDetails.revenue > 0 ? ((charityDetails.expenses * 0.85) / charityDetails.revenue) * 100 : 0;
+    const adminCostRatio = charityDetails.revenue > 0 ? ((charityDetails.expenses * 0.15) / charityDetails.revenue) * 100 : 0;
+    const liquidityRatio = 1.5; // Mock data
+    const debtToEquityRatio = 0.2; // Mock data
+
+    const financialMetrics = [
+        { label: 'Program Spending Ratio', value: `${programSpendingRatio.toFixed(1)}%`, description: 'Percentage of expenses on programs vs admin' },
+        { label: 'Administrative Cost Ratio', value: `${adminCostRatio.toFixed(1)}%`, description: 'Administrative costs as % of total expenses' },
+        { label: 'Surplus Margin', value: `${((surplus / charityDetails.revenue) * 100).toFixed(1)}%`, description: 'Net surplus as % of total revenue' },
+        { label: 'Liquidity Ratio', value: liquidityRatio.toFixed(1), description: 'Current assets to current liabilities' },
+    ];
+
+    return (
+        <div className="space-y-8">
+            {/* Financial Health Indicators */}
+            <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Financial Health Indicators</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {financialMetrics.map((metric, index) => (
+                        <Card key={index} className="p-4">
+                            <div className="text-center">
+                                <div className="text-2xl font-bold text-gray-900 dark:text-white">{metric.value}</div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">{metric.label}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">{metric.description}</div>
+                            </div>
+                        </Card>
+                    ))}
+                </div>
+            </div>
+
+            {/* Detailed Financial Breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Revenue Breakdown</h3>
+                    <Card className="p-6">
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Donations & Grants</span>
+                                <span className="font-semibold">{formatCurrency(charityDetails.revenue * 0.7)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div className="bg-blue-500 h-2 rounded-full" style={{ width: '70%' }}></div>
+                            </div>
+                            
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Government Funding</span>
+                                <span className="font-semibold">{formatCurrency(charityDetails.revenue * 0.2)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div className="bg-green-500 h-2 rounded-full" style={{ width: '20%' }}></div>
+                            </div>
+                            
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Other Income</span>
+                                <span className="font-semibold">{formatCurrency(charityDetails.revenue * 0.1)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div className="bg-purple-500 h-2 rounded-full" style={{ width: '10%' }}></div>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Expense Allocation</h3>
+                    <Card className="p-6">
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Program Services</span>
+                                <span className="font-semibold">{formatCurrency(charityDetails.expenses * 0.85)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div className="bg-green-500 h-2 rounded-full" style={{ width: '85%' }}></div>
+                            </div>
+                            
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Administration</span>
+                                <span className="font-semibold">{formatCurrency(charityDetails.expenses * 0.1)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '10%' }}></div>
+                            </div>
+                            
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Fundraising</span>
+                                <span className="font-semibold">{formatCurrency(charityDetails.expenses * 0.05)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div className="bg-blue-500 h-2 rounded-full" style={{ width: '5%' }}></div>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+            </div>
+
+            {/* Multi-Year Comparison */}
+            {historicalData && historicalData.length > 0 && (
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Multi-Year Financial Analysis</h3>
+                    <Card className="p-6">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                                        <th className="text-left py-3 text-gray-600 dark:text-gray-400">Year</th>
+                                        <th className="text-right py-3 text-gray-600 dark:text-gray-400">Revenue</th>
+                                        <th className="text-right py-3 text-gray-600 dark:text-gray-400">Expenses</th>
+                                        <th className="text-right py-3 text-gray-600 dark:text-gray-400">Surplus</th>
+                                        <th className="text-right py-3 text-gray-600 dark:text-gray-400">Growth</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {historicalData.map((year, index) => {
+                                        const surplus = year.revenue - year.expenses;
+                                        const growth = index > 0 ? ((year.revenue - historicalData[index - 1].revenue) / historicalData[index - 1].revenue * 100) : 0;
+                                        return (
+                                            <tr key={year.year} className="border-b border-gray-100 dark:border-gray-800">
+                                                <td className="py-3 font-medium">{year.year}</td>
+                                                <td className="py-3 text-right">{formatCurrency(year.revenue * 1000000)}</td>
+                                                <td className="py-3 text-right">{formatCurrency(year.expenses * 1000000)}</td>
+                                                <td className={`py-3 text-right font-medium ${surplus >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {formatCurrency(surplus * 1000000)}
+                                                </td>
+                                                <td className={`py-3 text-right ${growth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {index > 0 ? `${growth > 0 ? '+' : ''}${growth.toFixed(1)}%` : '-'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const CharityProgramsTab = ({ charityDetails }) => {
+    // Mock program data - in real app this would come from API
+    const programs = [
+        {
+            name: "Community Support Services",
+            description: "Direct assistance to individuals and families in need",
+            budget: charityDetails.expenses * 0.4,
+            beneficiaries: 1250,
+            outcomes: "95% of participants report improved quality of life"
+        },
+        {
+            name: "Education & Training Programs",
+            description: "Skills development and educational support initiatives",
+            budget: charityDetails.expenses * 0.3,
+            beneficiaries: 850,
+            outcomes: "78% completion rate with 85% job placement success"
+        },
+        {
+            name: "Health & Wellness Initiative",
+            description: "Mental health support and wellness programs",
+            budget: charityDetails.expenses * 0.15,
+            beneficiaries: 450,
+            outcomes: "Significant improvement in mental health scores"
+        }
+    ];
+
+    return (
+        <div className="space-y-8">
+            <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Programs & Services</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                    Overview of key programs and their impact on the community.
+                </p>
+            </div>
+
+            {/* Program Impact Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Card className="p-6 text-center">
+                    <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">
+                        {programs.reduce((total, program) => total + program.beneficiaries, 0).toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Beneficiaries</div>
+                </Card>
+                <Card className="p-6 text-center">
+                    <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">{programs.length}</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Active Programs</div>
+                </Card>
+                <Card className="p-6 text-center">
+                    <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2">
+                        {formatCurrency(programs.reduce((total, program) => total + program.budget, 0))}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Program Budget</div>
+                </Card>
+            </div>
+
+            {/* Individual Program Details */}
+            <div className="space-y-6">
+                {programs.map((program, index) => (
+                    <Card key={index} className="p-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2">
+                                <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{program.name}</h4>
+                                <p className="text-gray-600 dark:text-gray-400 mb-4">{program.description}</p>
+                                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <Target className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                        <span className="text-sm font-medium text-green-800 dark:text-green-200">Key Outcomes</span>
+                                    </div>
+                                    <p className="text-sm text-green-700 dark:text-green-300">{program.outcomes}</p>
+                                </div>
+                            </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">Annual Budget</div>
+                                    <div className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(program.budget)}</div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">Beneficiaries Served</div>
+                                    <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{program.beneficiaries.toLocaleString()}</div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">Cost per Beneficiary</div>
+                                    <div className="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        {formatCurrency(program.budget / program.beneficiaries)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </Card>
+                ))}
+            </div>
+
+            {/* Impact Measurement */}
+            <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Impact Measurement</h3>
+                <Card className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Social Return on Investment</h4>
+                            <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">$4.20</div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">For every $1 invested, $4.20 in social value is created</p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Program Effectiveness</h4>
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-sm">
+                                    <span>Program completion rate</span>
+                                    <span className="font-medium">87%</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span>Participant satisfaction</span>
+                                    <span className="font-medium">94%</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span>Long-term impact retention</span>
+                                    <span className="font-medium">76%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+        </div>
+    );
+};
+                                </div>
+            {/* Program Impact Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">ay-500 dark:text-gray-400">Beneficiaries Served</div>
+                <Card className="p-6 text-center">="text-xl font-bold text-blue-600 dark:text-blue-400">{program.beneficiaries.toLocaleString()}</div>
+                    <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">
+                        {programs.reduce((total, program) => total + program.beneficiaries, 0).toLocaleString()}
+                    </div>          <div className="text-sm text-gray-500 dark:text-gray-400">Cost per Beneficiary</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Beneficiaries</div>300">
+                </Card>                 {formatCurrency(program.budget / program.beneficiaries)}
+                <Card className="p-6 text-center">
+                    <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">{programs.length}</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Active Programs</div>
+                </Card> </div>
+                <Card className="p-6 text-center">
+                    <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2">
+                        {formatCurrency(programs.reduce((total, program) => total + program.budget, 0))}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Program Budget</div>
+                </Card>
+            </div>3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Impact Measurement</h3>
+                <Card className="p-6">
+            {/* Individual Program Details */}cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-6">
+                {programs.map((program, index) => (ibold text-gray-900 dark:text-white mb-3">Social Return on Investment</h4>
+                    <Card key={index} className="p-6">ont-bold text-green-600 dark:text-green-400 mb-2">$4.20</div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">400">For every $1 invested, $4.20 in social value is created</p>
+                            <div className="lg:col-span-2">
+                                <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{program.name}</h4>
+                                <p className="text-gray-600 dark:text-gray-400 mb-4">{program.description}</p>ness</h4>
+                                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <Target className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                        <span className="text-sm font-medium text-green-800 dark:text-green-200">Key Outcomes</span>
+                                    </div>
+                                    <p className="text-sm text-green-700 dark:text-green-300">{program.outcomes}</p>
+                                </div>pan>Participant satisfaction</span>
+                            </div>  <span className="font-medium">94%</span>
+                            <div className="space-y-4">
+                                <div>className="flex justify-between text-sm">
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">Annual Budget</div>
+                                    <div className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(program.budget)}</div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">Beneficiaries Served</div>
+                                    <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{program.beneficiaries.toLocaleString()}</div>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">Cost per Beneficiary</div>
+                                    <div className="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        {formatCurrency(program.budget / program.beneficiaries)}
+                                    </div>
+                                </div>yDetails }) => {
+                            </div>
+                        </div>
+                    </Card>s: 6,
+                ))}gsPerYear: 6,
+            </div>ttee: true,
+        riskCommittee: true,
+            {/* Impact Measurement */}
+            <div>"2024-11-15",
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Impact Measurement</h3>
+                <Card className="p-6">cy",
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>,
+                            <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Social Return on Investment</h4>
+                            <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">$4.20</div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">For every $1 invested, $4.20 in social value is created</p>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-gray-900 dark:text-white mb-3">Program Effectiveness</h4>
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-sm">
+                                    <span>Program completion rate</span>
+                                    <span className="font-medium">87%</span>
+                                </div> font-semibold text-gray-900 dark:text-white mb-6">Board of Directors</h3>
+                                <div className="flex justify-between text-sm">
+                                    <span>Participant satisfaction</span>
+                                    <span className="font-medium">94%</span>
+                                </div>Name="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">{governanceData.boardSize}</div>
+                                <div className="flex justify-between text-sm">ay-400">Board Members</div>
+                                    <span>Long-term impact retention</span>
+                                    <span className="font-medium">76%</span>
+                                </div>-6">
+                            </div>Name="text-center">
+                        </div>iv className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">{governanceData.independentDirectors}</div>
+                    </div>  <div className="text-sm text-gray-600 dark:text-gray-400">Independent Directors</div>
+                </Card> </div>
+            </div>  </Card>
+        </div>      <Card className="p-6">
+    );                  <div className="text-center">
+};                          <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2">{governanceData.boardMeetingsPerYear}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Meetings per Year</div>
+const CharityGovernanceTab = ({ charityDetails }) => {
+    const governanceData = {
+        boardSize: 8,>
+        independentDirectors: 6,
+        boardMeetingsPerYear: 6,
+        auditCommittee: true,ructure */}
+        riskCommittee: true,grid grid-cols-1 lg:grid-cols-2 gap-8">
+        lastAGM: "2023-11-15",
+        nextAGM: "2024-11-15",ame="text-xl font-semibold text-gray-900 dark:text-white mb-4">Committee Structure</h3>
+        policies: [ <Card className="p-6">
+            "Conflict of Interest Policy",ace-y-4">
+            "Whistleblower Policy", ssName="flex items-center justify-between">
+            "Code of Conduct",  <div className="flex items-center gap-3">
+            "Financial Management Policy",d className="h-5 w-5 text-green-500" />
+            "Risk Management Framework",n className="font-medium">Audit Committee</span>
+            "Privacy Policy"    </div>
+        ]                       <Badge variant="success">Active</Badge>
+    };                      </div>
+                            <div className="flex items-center justify-between">
+    return (                    <div className="flex items-center gap-3">
+        <div className="space-y-8"> <AlertTriangle className="h-5 w-5 text-orange-500" />
+            {/* Board Composition */}span className="font-medium">Risk Committee</span>
+            <div>               </div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Board of Directors</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <Card className="p-6">="flex items-center justify-between">
+                        <div className="text-center">items-center gap-3">
+                            <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">{governanceData.boardSize}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Board Members</div>
+                        </div>  </div>
+                    </Card>     <Badge variant="success">Active</Badge>
+                    <Card className="p-6">
+                        <div className="text-center">
+                            <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2">{governanceData.independentDirectors}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Independent Directors</div>
+                        </div>
+                    </Card>
+                    <Card className="p-6"> font-semibold text-gray-900 dark:text-white mb-4">Annual General Meeting</h3>
+                        <div className="text-center">
+                            <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2">{governanceData.boardMeetingsPerYear}</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Meetings per Year</div>
+                        </div>  <div className="text-sm text-gray-500 dark:text-gray-400">Last AGM</div>
+                    </Card>     <div className="font-medium text-gray-900 dark:text-white">{new Date(governanceData.lastAGM).toLocaleDateString()}</div>
+                </div>      </div>
+            </div>          <div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">Next AGM</div>
+            {/* Governance Structure */}ssName="font-medium text-gray-900 dark:text-white">{new Date(governanceData.nextAGM).toLocaleDateString()}</div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>       <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Committee Structure</h3>
+                    <Card className="p-6">dar className="h-4 w-4 mr-2" />
+                        <div className="space-y-4">nts
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <Shield className="h-5 w-5 text-green-500" />
+                                    <span className="font-medium">Audit Committee</span>
+                                </div>
+                                <Badge variant="success">Active</Badge>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <AlertTriangle className="h-5 w-5 text-orange-500" />Policies & Compliance</h3>
+                                    <span className="font-medium">Risk Committee</span>
+                                </div>id grid-cols-1 md:grid-cols-2 gap-4">
+                                <Badge variant="success">Active</Badge> (
+                            </div>ey={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">green-500" />
+                                    <Users className="h-5 w-5 text-blue-500" />cy}</span>
+                                    <span className="font-medium">Nominations Committee</span>
+                                </div>n variant="ghost" size="sm">
+                                <Badge variant="success">Active</Badge>>
+                            </div>Button>
+                        </div>div>
+                    </Card>
+                </div>div>
+                </Card>
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Annual General Meeting</h3>
+                    <Card className="p-6">
+                        <div className="space-y-4">
+                            <div>xt-xl font-semibold text-gray-900 dark:text-white mb-4">Regulatory Compliance</h3>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">Last AGM</div>
+                                <div className="font-medium text-gray-900 dark:text-white">{new Date(governanceData.lastAGM).toLocaleDateString()}</div>
+                            </div>Name="flex items-center gap-3">
+                            <div>kCircle className="h-5 w-5 text-green-500" />
+                                <div className="text-sm text-gray-500 dark:text-gray-400">Next AGM</div>
+                                <div className="font-medium text-gray-900 dark:text-white">{new Date(governanceData.nextAGM).toLocaleDateString()}</div>
+                            </div>iv className="text-xs text-gray-500 dark:text-gray-400">Current</div>
+                            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <Button variant="ghost" className="w-full justify-start">
+                                    <Calendar className="h-4 w-4 mr-2" />
+                                    View AGM Documents
+                                </Button>lex items-center gap-3">
+                            </div>Circle className="h-5 w-5 text-green-500" />
+                        </div>iv>
+                    </Card>     <div className="font-medium text-sm">DGR Status</div>
+                </div>          <div className="text-xs text-gray-500 dark:text-gray-400">Active</div>
+            </div>          </div>
+                        </div>
+            {/* Policies and Compliance */}
+            <div>   <Card className="p-4">
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Policies & Compliance</h3>
+                <Card className="p-6">le className="h-5 w-5 text-green-500" />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {governanceData.policies.map((policy, index) => (al Report</div>
+                            <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                    <span className="text-sm font-medium">{policy}</span>
+                                </div>-4">
+                                <Button variant="ghost" size="sm">
+                                    <ExternalLink className="h-3 w-3" />>
+                                </Button>
+                            </div>iv className="font-medium text-sm">Financial Report</div>
+                        ))}     <div className="text-xs text-gray-500 dark:text-gray-400">Due Soon</div>
+                    </div>  </div>
+                </Card> </div>
+            </div>  </Card>
+                </div>
+            {/* Compliance Status */}
+            <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Regulatory Compliance</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                            <CheckCircle className="h-5 w-5 text-green-500" />
+                            <div>
+                                <div className="font-medium text-sm">ACNC Registration</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">Current</div>
+                            </div>
+                        </div>
+                    </Card>
+                    <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                            <CheckCircle className="h-5 w-5 text-green-500" />
+                            <div> 2023",
+                                <div className="font-medium text-sm">DGR Status</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">Active</div>
+                            </div>
+                        </div>
+                    </Card>
+                    <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                            <CheckCircle className="h-5 w-5 text-green-500" />
+                            <div>
+                                <div className="font-medium text-sm">Annual Report</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">Submitted</div>
+                            </div>
+                        </div>
+                    </Card>
+                    <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                            <Clock className="h-5 w-5 text-yellow-500" />
+                            <div>
+                                <div className="font-medium text-sm">Financial Report</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">Due Soon</div>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+            </div>olor = (type) => {
+        </div>colors = {
+    );      Financial: 'blue',
+};          Impact: 'green',
+            Governance: 'purple',
+const CharityReportsTab = ({ charityDetails }) => {
+    const reports = [
+        {eturn colors[type] || 'gray';
+            title: "Annual Financial Report 2023",
+            type: "Financial",
+            date: "2024-03-15",
+            size: "2.4 MB",ce-y-8">
+            format: "PDF",
+            url: "#"className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Reports & Documents</h3>
+        },      <p className="text-gray-600 dark:text-gray-400 mb-6">
+        {           Access annual reports, financial statements, and other key documents.
+            title: "Impact Report 2023",
+            type: "Impact",
+            date: "2024-02-28",
+            size: "5.1 MB",s Documents */}
+            format: "PDF",="grid grid-cols-1 md:grid-cols-3 gap-6">
+            url: "#"d className="p-6 cursor-pointer hover:shadow-lg transition-shadow">
+        },          <div className="text-center">
+        {               <FileText className="h-12 w-12 text-blue-500 mx-auto mb-3" />
+            title: "Governance Statement 2023",ibold text-gray-900 dark:text-white mb-2">Latest Annual Report</h4>
+            type: "Governance",sName="text-sm text-gray-600 dark:text-gray-400 mb-3">Complete overview of activities and finances</p>
+            date: "2024-01-31", size="sm" className="w-full">
+            size: "1.8 MB", <Download className="h-4 w-4 mr-2" />
+            format: "PDF",  Download
+            url: "#"    </Button>
+        },          </div>
+        {       </Card>
+            title: "Auditor's Report 2023",
+            type: "Audit",sName="p-6 cursor-pointer hover:shadow-lg transition-shadow">
+            date: "2024-03-10",ame="text-center">
+            size: "956 KB",rChart3 className="h-12 w-12 text-green-500 mx-auto mb-3" />
+            format: "PDF",4 className="font-semibold text-gray-900 dark:text-white mb-2">Financial Statements</h4>
+            url: "#"    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Detailed financial position and performance</p>
+        }               <Button size="sm" className="w-full">
+    ];                      <Download className="h-4 w-4 mr-2" />
+                            Download
+    const getTypeColor = (type) => {
+        const colors = {v>
+            Financial: 'blue',
+            Impact: 'green',
+            Governance: 'purple',p-6 cursor-pointer hover:shadow-lg transition-shadow">
+            Audit: 'orange'assName="text-center">
+        };              <Award className="h-12 w-12 text-purple-500 mx-auto mb-3" />
+        return colors[type] || 'gray';"font-semibold text-gray-900 dark:text-white mb-2">Impact Summary</h4>
+    };                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Key achievements and community impact</p>
+                        <Button size="sm" className="w-full">
+    return (                <Download className="h-4 w-4 mr-2" />
+        <div className="space-y-8">d
+            <div>       </Button>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Reports & Documents</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                    Access annual reports, financial statements, and other key documents.
+                </p>
+            </div>mplete Document Library */}
+            <div>
+            {/* Quick Access Documents */}t-semibold text-gray-900 dark:text-white mb-4">Document Library</h3>
+                <Card className="overflow-hidden">
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {reports.map((report, index) => (
+                            <div key={index} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                                            <FileText className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-gray-900 dark:text-white">{report.title}</h4>
+                                            <div className="flex items-center gap-3 mt-1">
+                                                <Badge variant={getTypeColor(report.type) === 'blue' ? 'default' : 'secondary'}>
+                                                    {report.type}
+                                                </Badge>
+                                                <span className="text-sm text-gray-500 dark:text-gray-400">
+                                                    {new Date(report.date).toLocaleDateString()}
+                                                </span>
+                                                <span className="text-sm text-gray-500 dark:text-gray-400">
+                                                    {report.size} • {report.format}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button variant="ghost" size="sm">
+                                            <ExternalLink className="h-4 w-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="sm">
+                                            <Download className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            </div>
+
+            {/* Additional Resources */}
+            <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Additional Resources</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                            <Globe className="h-5 w-5 text-blue-500" />
+                            <div>
+                                <div className="font-medium text-gray-900 dark:text-white">ACNC Charity Register</div>
+                                <div className="text-sm text-gray-600 dark:text-gray-400">View official registration details</div>
+                            </div>
+                            <ExternalLink className="h-4 w-4 text-gray-400 ml-auto" />
+                        </div>
+                    </Card>
+                    <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                            <BarChart3 className="h-5 w-5 text-green-500" />
+                            <div>
+                                <div className="font-medium text-gray-900 dark:text-white">Financial Trend Analysis</div>
+                                <div className="text-sm text-gray-600 dark:text-gray-400">5-year financial performance</div>
+                            </div>
+                            <ExternalLink className="h-4 w-4 text-gray-400 ml-auto" />
+                        </div>
+                    </Card>
+                </div>
+            </div>
+        </div>
+    );
+};

@@ -3,6 +3,7 @@ const fetch = require('node-fetch');
 const ACNCDatabase = require('./database/queries');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,26 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     next();
 });
+
+// --- HTTPS/SSL CONFIGURATION ---
+const useHttps = process.env.USE_HTTPS === 'true';
+let server;
+
+if (useHttps) {
+    try {
+        const options = {
+            key: fs.readFileSync('key.pem'),
+            cert: fs.readFileSync('cert.pem')
+        };
+        server = https.createServer(options, app);
+        console.log('HTTPS server created.');
+    } catch (e) {
+        console.error('Could not create HTTPS server. Falling back to HTTP.', e);
+        server = app; // Fallback to HTTP if certs are missing
+    }
+} else {
+    server = app; // Use HTTP if USE_HTTPS is not set
+}
 
 // Serve the static frontend file from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
@@ -137,316 +158,41 @@ app.get('/api/entity', async (req, res) => {
     }
 });
 
-// --- NEW DATABASE ENDPOINTS FOR HISTORICAL DATA ---
+// --- NEW LOCAL DATABASE ENDPOINTS (FOR HISTORICAL DATA) ---
 
 // Search charities in local database
-app.get('/api/db/search', async (req, res) => {
+app.get('/api/local/search', (req, res) => {
+    if (!db) {
+        return res.status(503).json({ error: 'Database not initialized' });
+    }
+    const { name = '', search = '' } = req.query;
+    const searchTerm = name || search;
+    
     try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const {
-            search = '',
-            size = '',
-            minRevenue = 0,
-            maxRevenue = '',
-            year = '',
-            limit = 50,
-            offset = 0
-        } = req.query;
-        
-        const options = {
-            search,
-            size,
-            minRevenue: parseInt(minRevenue) || 0,
-            maxRevenue: maxRevenue ? parseInt(maxRevenue) : Number.MAX_SAFE_INTEGER,
-            year: year ? parseInt(year) : null,
-            limit: parseInt(limit) || 50,
-            offset: parseInt(offset) || 0
-        };
-        
-        const results = db.searchCharities(options);
-        res.json({
-            success: true,
-            data: results,
-            count: results.length
-        });
-    } catch (error) {
-        console.error('Database search error:', error);
-        res.status(500).json({ error: 'Failed to search database', message: error.message });
+        const charities = db.searchCharities({ search: searchTerm });
+        res.json(charities);
+    } catch (err) {
+        console.error('Local search error:', err);
+        return res.status(500).json({ error: err.message });
     }
 });
 
 // Get charity details from database
-app.get('/api/db/charity/:abn', async (req, res) => {
+app.get('/api/local/charity/:abn', (req, res) => {
+    if (!db) {
+        return res.status(503).json({ error: 'Database not initialized' });
+    }
+    const { abn } = req.params;
+    
     try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { abn } = req.params;
-        const details = db.getCharityDetails(abn);
-        
-        if (!details) {
+        const charity = db.getCharityDetails(abn);
+        if (!charity) {
             return res.status(404).json({ error: 'Charity not found' });
         }
-        
-        res.json({
-            success: true,
-            data: details
-        });
-    } catch (error) {
-        console.error('Database charity details error:', error);
-        res.status(500).json({ error: 'Failed to get charity details' });
-    }
-});
-
-// Get historical financial data for a charity
-app.get('/api/db/charity/:abn/history', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { abn } = req.params;
-        const trends = db.getFinancialTrends(abn);
-        
-        res.json({
-            success: true,
-            data: trends || []
-        });
-    } catch (error) {
-        console.error('Database historical trends error:', error);
-        res.status(500).json({ error: 'Failed to get historical trends' });
-    }
-});
-
-// Get financial trends for a charity
-app.get('/api/db/trends/:abn', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { abn } = req.params;
-        const trends = db.getFinancialTrends(abn);
-        
-        res.json({
-            success: true,
-            data: trends
-        });
-    } catch (error) {
-        console.error('Database trends error:', error);
-        res.status(500).json({ error: 'Failed to get financial trends' });
-    }
-});
-
-// Get yearly statistics
-app.get('/api/db/stats/:year', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { year } = req.params;
-        const stats = db.getYearlyStats(parseInt(year));
-        
-        res.json({
-            success: true,
-            data: stats
-        });
-    } catch (error) {
-        console.error('Database stats error:', error);
-        res.status(500).json({ error: 'Failed to get yearly statistics' });
-    }
-});
-
-// Get top charities for a year
-app.get('/api/db/top/:year', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { year } = req.params;
-        const { limit = 10 } = req.query;
-        const topCharities = db.getTopCharities(parseInt(year), parseInt(limit));
-        
-        res.json({
-            success: true,
-            data: topCharities
-        });
-    } catch (error) {
-        console.error('Database top charities error:', error);
-        res.status(500).json({ error: 'Failed to get top charities' });
-    }
-});
-
-// Get sector analysis
-app.get('/api/db/sectors/:year', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { year } = req.params;
-        const sectors = db.getSectorAnalysis(parseInt(year));
-        
-        res.json({
-            success: true,
-            data: sectors
-        });
-    } catch (error) {
-        console.error('Database sector analysis error:', error);
-        res.status(500).json({ error: 'Failed to get sector analysis' });
-    }
-});
-
-// Get autocomplete suggestions from database
-app.get('/api/db/autocomplete', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { search = '' } = req.query;
-        const suggestions = db.getAutocompleteSuggestions(search);
-        
-        res.json({
-            success: true,
-            data: suggestions
-        });
-    } catch (error) {
-        console.error('Database autocomplete error:', error);
-        res.status(500).json({ error: 'Failed to get autocomplete suggestions' });
-    }
-});
-
-// Get available years
-app.get('/api/db/years', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const years = db.getAvailableYears();
-        
-        res.json({
-            success: true,
-            data: years
-        });
-    } catch (error) {
-        console.error('Database years error:', error);
-        res.status(500).json({ error: 'Failed to get available years' });
-    }
-});
-
-// Health check endpoint
-app.get('/api/db/health', async (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available, but the API server is running.'
-            });
-        }
-        
-        const years = db.getAvailableYears();
-        const stats = years.length > 0 ? db.getYearlyStats(Math.max(...years)) : {};
-        
-        res.json({
-            success: true,
-            database: 'connected',
-            available_years: years,
-            latest_year_stats: stats
-        });
-    } catch (error) {
-        console.error('Database health check error:', error);
-        res.status(500).json({ 
-            error: 'Database check failed', 
-            message: error.message,
-            apiServer: 'running'
-        });
-    }
-});
-
-// --- LOCAL DATABASE ENDPOINTS (OLDER VERSIONS - KEPT FOR COMPATIBILITY) ---
-
-// Search charities with filters from local database
-app.get('/api/local/search', (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { search, size, minRevenue, maxRevenue, year, limit, offset } = req.query;
-        const results = db.searchCharities({
-            search,
-            size,
-            minRevenue: minRevenue ? Number(minRevenue) : 0,
-            maxRevenue: maxRevenue ? Number(maxRevenue) : Number.MAX_SAFE_INTEGER,
-            year: year ? Number(year) : null,
-            limit: limit ? Number(limit) : 50,
-            offset: offset ? Number(offset) : 0
-        });
-        res.json(results);
-    } catch (error) {
-        console.error('Local search error:', error);
-        res.status(500).json({ error: 'Failed to search local charity database.' });
-    }
-});
-
-// Get detailed charity information from local database
-app.get('/api/local/charity/:abn', (req, res) => {
-    try {
-        if (!db) {
-            return res.status(503).json({ 
-                error: 'Database Service Unavailable',
-                message: 'The database connection is not available.'
-            });
-        }
-        
-        const { abn } = req.params;
-        const details = db.getCharityDetails(abn);
-        if (details) {
-            res.json(details);
-        } else {
-            res.status(404).json({ error: 'Charity not found in local database.' });
-        }
-    } catch (error) {
-        console.error('Local charity details error:', error);
-        res.status(500).json({ error: 'Failed to fetch charity details from local database.' });
+        res.json(charity);
+    } catch (err) {
+        console.error('Local charity details error:', err);
+        return res.status(500).json({ error: err.message });
     }
 });
 
@@ -473,36 +219,206 @@ app.get('/api/local/trends/:abn', (req, res) => {
     }
 });
 
-// Error handling middleware - place at the end
-app.use((err, req, res, next) => {
-    console.error('Global error handler caught:', err);
-    res.status(500).json({ 
-        error: 'Internal Server Error', 
-        message: err.message,
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+// Health-check endpoint for frontend proxy
+app.get('/api/db/health', (req, res) => {
+  res.json({ success: true, dbInitialized: !!db });
+});
+
+// Map frontend history path to local trends
+app.get('/api/db/charity/:abn/history', (req, res, next) => {
+  const { abn } = req.params;
+  // Forward to the existing local trends route
+  req.url = `/api/local/trends/${abn}`;
+  next();
+});
+
+// --- HISTORICAL DATA ENDPOINT (WORKING FROM BEFORE) ---
+app.get('/api/historical', async (req, res) => {
+    const { abn } = req.query;
+    
+    if (!abn) {
+        return res.status(400).json({ error: 'ABN is required' });
+    }
+
+    try {
+        // Get the charity UUID first from search
+        const searchUrl = `https://www.acnc.gov.au/api/dynamics/search/charity?search=${encodeURIComponent(abn)}`;
+        const searchResponse = await fetch(searchUrl);
+        
+        if (!searchResponse.ok) {
+            throw new Error(`Failed to find charity with ABN ${abn}`);
+        }
+        
+        const searchData = await searchResponse.json();
+        
+        if (!searchData.items || searchData.items.length === 0) {
+            return res.status(404).json({ error: 'Charity not found' });
+        }
+        
+        const charity = searchData.items[0];
+        const uuid = charity.uuid;
+        
+        // Fetch historical data for multiple years
+        const years = [2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013];
+        const historicalData = [];
+        
+        for (const year of years) {
+            try {
+                const aisUrl = `https://www.acnc.gov.au/api/dynamics/entity/${uuid}?type=annual_information_statement&year=${year}`;
+                const aisResponse = await fetch(aisUrl);
+                
+                if (aisResponse.ok) {
+                    const aisData = await aisResponse.json();
+                    
+                    if (aisData.data) {
+                        const yearData = {
+                            year,
+                            revenue: calculateTotalRevenue(aisData.data),
+                            expenses: calculateTotalExpenses(aisData.data),
+                            assets: parseFloat(aisData.data.TotalAssets || 0),
+                            liabilities: parseFloat(aisData.data.TotalLiabilities || 0)
+                        };
+                        
+                        yearData.surplus = yearData.revenue - yearData.expenses;
+                        historicalData.push(yearData);
+                    }
+                }
+            } catch (error) {
+                console.log(`No data for year ${year}: ${error.message}`);
+            }
+        }
+        
+        res.json(historicalData);
+        
+    } catch (error) {
+        console.error('Historical data error:', error);
+        res.status(500).json({ error: 'Failed to fetch historical data' });
+    }
+});
+
+// --- ENHANCED SEARCH ENDPOINT (WORKING FROM BEFORE) ---
+app.get('/api/db/search', async (req, res) => {
+    const { search = '', limit = 50 } = req.query;
+    
+    try {
+        // Use the live ACNC search API
+        const searchUrl = `https://www.acnc.gov.au/api/dynamics/search/charity?search=${encodeURIComponent(search)}`;
+        const searchResponse = await fetch(searchUrl);
+        
+        if (!searchResponse.ok) {
+            throw new Error(`ACNC search failed with status ${searchResponse.status}`);
+        }
+        
+        const searchData = await searchResponse.json();
+        
+        if (!searchData.items) {
+            return res.json([]);
+        }
+        
+        // Limit the results and add financial data for the first few
+        const limitedResults = searchData.items.slice(0, parseInt(limit));
+        const enhancedResults = [];
+        
+        // Get financial data for first 10 results to avoid overwhelming the API
+        const financialPromises = limitedResults.slice(0, 10).map(async (charity) => {
+            try {
+                const entityUrl = `https://www.acnc.gov.au/api/dynamics/entity/${charity.uuid}`;
+                const entityResponse = await fetch(entityUrl);
+                
+                if (entityResponse.ok) {
+                    const entityData = await entityResponse.json();
+                    
+                    return {
+                        abn: charity.abn,
+                        charity_name: charity.name,
+                        charity_size: charity.size,
+                        charity_website: charity.website,
+                        uuid: charity.uuid,
+                        state: charity.state,
+                        total_revenue: entityData.data ? calculateTotalRevenue(entityData.data) : 0,
+                        total_expenses: entityData.data ? calculateTotalExpenses(entityData.data) : 0,
+                        total_assets: entityData.data ? parseFloat(entityData.data.TotalAssets || 0) : 0,
+                        net_surplus_deficit: entityData.data ? (calculateTotalRevenue(entityData.data) - calculateTotalExpenses(entityData.data)) : 0
+                    };
+                }
+            } catch (error) {
+                console.log(`Failed to get financial data for ${charity.name}: ${error.message}`);
+            }
+            
+            // Return basic data if financial fetch fails
+            return {
+                abn: charity.abn,
+                charity_name: charity.name,
+                charity_size: charity.size,
+                charity_website: charity.website,
+                uuid: charity.uuid,
+                state: charity.state,
+                total_revenue: 0,
+                total_expenses: 0,
+                total_assets: 0,
+                net_surplus_deficit: 0
+            };
+        });
+        
+        const enhancedFirst10 = await Promise.all(financialPromises);
+        
+        // Add the remaining results without financial data
+        const remainingResults = limitedResults.slice(10).map(charity => ({
+            abn: charity.abn,
+            charity_name: charity.name,
+            charity_size: charity.size,
+            charity_website: charity.website,
+            uuid: charity.uuid,
+            state: charity.state,
+            total_revenue: 0,
+            total_expenses: 0,
+            total_assets: 0,
+            net_surplus_deficit: 0
+        }));
+        
+        const finalResults = [...enhancedFirst10, ...remainingResults];
+        res.json(finalResults);
+        
+    } catch (error) {
+        console.error('Database search error:', error);
+        res.status(500).json({ error: 'Failed to search charities' });
+    }
+});
+
+// --- HELPER FUNCTIONS FOR FINANCIAL CALCULATIONS ---
+function calculateTotalRevenue(data) {
+    const revenue = 
+        parseFloat(data.TotalGrossIncomeGovernmentGrants || 0) +
+        parseFloat(data.TotalGrossIncomeOtherRevenues || 0) +
+        parseFloat(data.TotalGrossIncomeDonationsAndRequests || 0) +
+        parseFloat(data.TotalGrossIncomeInvestments || 0) +
+        parseFloat(data.TotalGrossIncomeOther || 0);
+    
+    return revenue;
+}
+
+function calculateTotalExpenses(data) {
+    const expenses = 
+        parseFloat(data.TotalExpensesEmployee || 0) +
+        parseFloat(data.TotalExpensesOther || 0) +
+        parseFloat(data.TotalExpensesGrantsAndDonationsMadeToOtherOrganisations || 0) +
+        parseFloat(data.TotalExpensesInterest || 0);
+    
+    return expenses;
+}
+
+// --- SERVER STARTUP ---
+const serverInstance = server.listen(PORT, () => {
+    const protocol = useHttps ? 'https' : 'http';
+    console.log(`Server running on ${protocol}://localhost:${PORT}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    serverInstance.close(() => {
+        console.log('HTTP server closed');
     });
 });
 
-// Error handling middleware - must be placed at the end of all route definitions
-app.use((err, req, res, next) => {
-    console.error('Global error handler caught:', err);
-    res.status(500).json({ 
-        error: 'Internal Server Error', 
-        message: err.message,
-        path: req.path,
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
-});
-
-// Handle all other routes - must be after all other routes are defined
-app.use('*', (req, res) => {
-    console.log(`Route not found: ${req.originalUrl}`);
-    res.status(404).json({ 
-        error: 'Not Found',
-        message: `The requested path ${req.originalUrl} was not found`
-    });
-});
-
-app.listen(PORT, () => {
-    console.log(`ACNC Proxy Server running at http://localhost:${PORT}`);
-});
+module.exports = app;
